@@ -1,0 +1,6 @@
+{
+  "short_name": "GH2 Dashboard",
+  "name": "GH2 Solar Dashboard",
+  "start_url": ".",
+  "display": "standalone"
+}
