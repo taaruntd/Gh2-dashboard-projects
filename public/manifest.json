@@ -2,5 +2,6 @@
   "short_name": "GH2 Dashboard",
   "name": "GH2 Solar Dashboard",
   "start_url": ".",
-  "display": "standalone"
+  "display": "standalone",
+  "theme_color": "#A6C83D"
 }
