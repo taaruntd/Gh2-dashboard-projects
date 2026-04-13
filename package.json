@@ -2,8 +2,8 @@
   "name": "gh2-solar-dashboard",
   "version": "1.0.0",
   "private": true,
-   "engine": {
-    "node": "^18.x"
+   "engines": {
+    "node": "18.x"
    },
   "dependencies": {
     "react": "^18.2.0",
