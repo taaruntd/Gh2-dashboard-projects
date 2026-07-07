@@ -99,7 +99,7 @@ const GM_STAGES = [
     light: "#F3E5F5",
     groups: [
       {
-        label: "Engineering Basics",
+        label: "Site Studies & Reports",
         tasks: [
           "Topographical Survey (Contour Layout)",
           "Geotechnical Investigation Report & ERT",
@@ -111,35 +111,60 @@ const GM_STAGES = [
           "PVSyst Reports",
           "Shadow Analysis Reports",
           "Design Calculations",
+        ],
+      },
+      {
+        label: "Electrical SLDs & Layouts",
+        tasks: [
           "DC & AC SLD Layout",
           "Plant Auxiliary SLD",
           "Overall Plant Layout with Equipment Arrangements",
-          "Pile Marking Layout",
           "DC Cable Routing Layout & String Configuration Layout",
           "AC Cable Routing Layout with Cable Trench Sectional Details",
-          "Inverter Mounting Foundation Drawing and Calculation",
-          "Lightning Protection Layout & Foundation Drawing",
-          "Earthing Layout Drawing",
           "IDT Yard Equipment Arrangement Drawing",
-          "MCR Arch_x002e_ Plan Layout",
-          "MCR Equipment Layout",
-          "CCTV Camera Layout and General Arrangement",
+          "Equipment Layout",
+        ],
+      },
+      {
+        label: "Structural & Foundation Drawings",
+        tasks: [
+          "Pile Marking Layout",
+          "Inverter Mounting Foundation Drawing and Calculation",
           "MMS GA, Foundations Drawings and Calculation",
           "LT Panel Foundation Drawing and Arrangement Details",
-          "Plant Main Gate Drawing",
-          "Porta & Security Cabin Foundation Drawing",
           "HT Platform Foundation Drawing and Arrangement Details",
-          "Road Layout and Sections Details and Calculation",
-          "PV Module Cleaning System Schematic and Layout & Calculation",
           "Civil Foundation for Inverter Duty Transformer",
           "Civil Foundation Auxiliary Transformer",
           "Civil Foundation Street Lights",
+        ],
+      },
+      {
+        label: "Protection & Earthing",
+        tasks: [
+          "Lightning Protection Layout & Foundation Drawing",
+          "Earthing Layout Drawing",
+        ],
+      },
+      {
+        label: "Civil & Site Infrastructure",
+        tasks: [
+          "MCR Arch_x002e_ Plan Layout",
+          "MCR Equipment Layout",
+          "Plant Main Gate Drawing",
+          "Porta & Security Cabin Foundation Drawing",
+          "Road Layout and Sections Details and Calculation",
           "Chain Link Fencing Drawing and Layout for IDT Yard",
           "Boundary Fencing Drawing",
           "Plant Road Layout with Sectional Details",
-          "FAS Layout",
           "Plant Drain Layout with Sectional Details",
-          "Equipment Layout",
+        ],
+      },
+      {
+        label: "Auxiliary Systems",
+        tasks: [
+          "CCTV Camera Layout and General Arrangement",
+          "PV Module Cleaning System Schematic and Layout & Calculation",
+          "FAS Layout",
         ],
       },
       { label: "GFC Approval", tasks: ["Designing with Approval (GFC)"] },
@@ -640,9 +665,84 @@ function mapRow(row) {
   };
 }
 
-// ── STAGE BREAKDOWN ───────────────────────────────────────────────────────────
+// ── EPC-STYLE PRIMITIVES (shared look for the project page) ───────────────────
+const Badge = ({ text, bg, border, color }) => {
+  if (!text) return <span style={{ color: B.muted, fontSize: 10 }}>—</span>;
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "2px 9px",
+        borderRadius: 20,
+        fontSize: 9,
+        fontWeight: 600,
+        background: bg,
+        border: `1px solid ${border}`,
+        color: color,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {text}
+    </span>
+  );
+};
+
+const SecLabel = ({ text }) => (
+  <div
+    style={{
+      fontSize: 9,
+      fontWeight: 700,
+      color: B.muted,
+      textTransform: "uppercase",
+      letterSpacing: ".08em",
+      marginBottom: 8,
+    }}
+  >
+    {text}
+  </div>
+);
+
+const SmallCard = ({ label, value, sub, accent, italic }) => (
+  <div
+    style={{
+      background: B.bg,
+      borderRadius: 10,
+      border: `1px solid ${accent}22`,
+      borderLeft: `3px solid ${accent}`,
+      padding: "11px 14px",
+    }}
+  >
+    <div
+      style={{
+        fontSize: 9,
+        fontWeight: 700,
+        color: B.muted,
+        textTransform: "uppercase",
+        letterSpacing: ".06em",
+        marginBottom: 5,
+      }}
+    >
+      {label}
+    </div>
+    <div
+      style={{
+        fontSize: 18,
+        fontWeight: 700,
+        color: B.text,
+        lineHeight: 1,
+        fontFamily: "monospace",
+        fontStyle: italic ? "italic" : "normal",
+      }}
+    >
+      {value}
+    </div>
+    {sub && <div style={{ fontSize: 10, color: B.muted, marginTop: 4 }}>{sub}</div>}
+  </div>
+);
+
+// ── STAGE RAIL (milestone-rail-style stage breakdown) ──────────────────────────
 function StageBreakdown({ project, stageConfig }) {
-  const [openStages, setOpenStages] = useState({});
+  const [selectedStage, setSelectedStage] = useState(null);
   const [openGroups, setOpenGroups] = useState({});
   const td = project.tasks || {};
 
@@ -674,309 +774,315 @@ function StageBreakdown({ project, stageConfig }) {
 
   return (
     <div style={{ padding: "0 20px 20px" }}>
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 700,
-          color: B.muted,
-          letterSpacing: 1,
-          padding: "12px 0 10px",
-          borderBottom: `1px solid ${B.border}`,
-          marginBottom: 8,
-        }}
-      >
-        STAGE TASK BREAKDOWN
+      <SecLabel text="Stage Breakdown" />
+
+      {/* Horizontal stage rail */}
+      <div style={{ overflowX: "auto", paddingBottom: 6, marginBottom: 12 }}>
+        <div style={{ display: "flex", gap: 10, minWidth: "max-content", padding: "3px 1px 6px" }}>
+          {stageConfig.map((stage) => {
+            const sp = stagePct(stage);
+            const isSel = selectedStage === stage.id;
+            const isDone = sp >= 100;
+            return (
+              <div
+                key={stage.id}
+                onClick={() => setSelectedStage(isSel ? null : stage.id)}
+                role="button"
+                tabIndex={0}
+                style={{
+                  width: 150,
+                  flexShrink: 0,
+                  background: isSel ? stage.light : "#fff",
+                  border: `1px solid ${isSel ? stage.color : B.border}`,
+                  borderLeft: `3px solid ${isDone ? B.green : stage.color}`,
+                  borderRadius: 8,
+                  padding: "9px 10px 8px",
+                  cursor: "pointer",
+                  transition: "all .12s",
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: "monospace",
+                    fontSize: 8,
+                    color: B.muted,
+                    marginBottom: 2,
+                    fontWeight: 700,
+                    letterSpacing: ".04em",
+                  }}
+                >
+                  {stage.label.toUpperCase()}
+                </div>
+                <div style={{ marginTop: 6, marginBottom: 6 }}>
+                  <MiniBar pct={sp} color={stage.color} h={6} />
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily: "monospace",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: isDone ? B.green : stage.color,
+                    }}
+                  >
+                    {sp}%
+                  </span>
+                  {isDone && <Badge text="Done" bg="#e8f8ed" border="#86d9a0" color="#0d7a32" />}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {stageConfig.map((stage) => {
-        const sp = stagePct(stage);
-        const isOpen = openStages[stage.id];
-        return (
-          <div key={stage.id} style={{ marginBottom: 6 }}>
+      {/* Expanded stage drawer */}
+      {selectedStage &&
+        (() => {
+          const stage = stageConfig.find((s) => s.id === selectedStage);
+          if (!stage) return null;
+          return (
             <div
-              onClick={() =>
-                setOpenStages((p) => ({ ...p, [stage.id]: !p[stage.id] }))
-              }
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "8px 12px",
-                background: isOpen ? stage.light : "#fafafa",
-                borderRadius: 8,
-                cursor: "pointer",
-                border: `1px solid ${isOpen ? stage.color + "44" : "#e8e8e8"}`,
+                background: "#fff",
+                border: `1px solid ${stage.color}33`,
+                borderLeft: `3px solid ${stage.color}`,
+                borderRadius: 12,
+                overflow: "hidden",
+                marginBottom: 10,
               }}
             >
-              <span style={{ fontSize: 10, color: stage.color, minWidth: 12 }}>
-                {isOpen ? "▼" : "▶"}
-              </span>
-              <span
+              <div
                 style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: B.text,
-                  flex: 1,
+                  padding: "10px 16px",
+                  borderBottom: `1px solid ${B.border}`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
                 }}
               >
-                {stage.label}
-              </span>
-              <MiniBar pct={sp} color={stage.color} h={6} />
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: stage.color,
-                  minWidth: 38,
-                  textAlign: "right",
-                }}
-              >
-                {sp}%
-              </span>
-            </div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: B.text }}>
+                  {stage.label} — {stagePct(stage)}% complete
+                </div>
+                <span style={{ fontSize: 9, color: B.muted, fontStyle: "italic" }}>
+                  Click the stage card again to close
+                </span>
+              </div>
 
-            {isOpen &&
-              stage.groups.map((grp) => {
-                const gk = `${stage.id}-${grp.label}`;
-                const gp = groupPct(grp.tasks);
-                const gOpen = openGroups[gk];
-                return (
-                  <div key={gk} style={{ marginLeft: 16, marginTop: 3 }}>
-                    <div
-                      onClick={() =>
-                        setOpenGroups((p) => ({ ...p, [gk]: !p[gk] }))
-                      }
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "6px 10px",
-                        background: gOpen ? stage.light + "88" : "#fff",
-                        borderRadius: 6,
-                        cursor: "pointer",
-                        border: `1px solid ${stage.color}22`,
-                        marginBottom: 2,
-                      }}
-                    >
-                      <span
+              <div style={{ padding: "12px 16px" }}>
+                {stage.groups.map((grp) => {
+                  const gk = `${stage.id}-${grp.label}`;
+                  const gp = groupPct(grp.tasks);
+                  const gOpen = openGroups[gk];
+                  return (
+                    <div key={gk} style={{ marginBottom: 6 }}>
+                      <div
+                        onClick={() => setOpenGroups((p) => ({ ...p, [gk]: !p[gk] }))}
                         style={{
-                          fontSize: 9,
-                          color: stage.color,
-                          minWidth: 10,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          padding: "7px 10px",
+                          background: gOpen ? stage.light : B.bg,
+                          borderRadius: 6,
+                          cursor: "pointer",
+                          border: `1px solid ${B.border}`,
                         }}
                       >
-                        {gOpen ? "▼" : "▶"}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: "#444",
-                          flex: 1,
-                        }}
-                      >
-                        {grp.label}
-                      </span>
-                      <MiniBar pct={gp} color={stage.color} h={4} />
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          color: stage.color,
-                          minWidth: 35,
-                          textAlign: "right",
-                        }}
-                      >
-                        {gp}%
-                      </span>
-                    </div>
+                        <span style={{ fontSize: 9, color: stage.color, minWidth: 10 }}>
+                          {gOpen ? "▼" : "▶"}
+                        </span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: B.text, flex: 1 }}>
+                          {grp.label}
+                        </span>
+                        <div style={{ width: 80 }}>
+                          <MiniBar pct={gp} color={stage.color} h={4} />
+                        </div>
+                        <span
+                          style={{
+                            fontFamily: "monospace",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: stage.color,
+                            minWidth: 34,
+                            textAlign: "right",
+                          }}
+                        >
+                          {gp}%
+                        </span>
+                      </div>
 
-                    {gOpen &&
-                      grp.tasks.map((taskName) => {
-                        const t = td[taskName] || {};
-                        const pct = t.pct || 0;
-                        const isProc = t.type === "proc";
-                        return (
-                          <div
-                            key={taskName}
-                            style={{
-                              display: "flex",
-                              alignItems: "flex-start",
-                              gap: 8,
-                              padding: "6px 10px 6px 26px",
-                              background:
-                                pct >= 100
-                                  ? "#e8f5e9"
-                                  : pct > 0
-                                  ? "#fff9c4"
-                                  : "#fafafa",
-                              borderRadius: 6,
-                              marginBottom: 2,
-                              border: "1px solid #f0f0f0",
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: 26,
-                                height: 26,
-                                borderRadius: "50%",
-                                flexShrink: 0,
-                                border: `2px solid ${
-                                  pct >= 100
-                                    ? B.green
-                                    : pct > 0
-                                    ? "#e07b20"
-                                    : "#e0e0e0"
-                                }`,
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                background: pct >= 100 ? "#e8f5e9" : "#fff",
-                                marginTop: 1,
-                              }}
-                            >
-                              {pct >= 100 ? (
-                                <span style={{ color: B.green, fontSize: 11 }}>
-                                  ✓
-                                </span>
-                              ) : (
-                                <span
+                      {gOpen && (
+                        <div style={{ overflowX: "auto", marginTop: 4 }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                            <thead>
+                              <tr>
+                                <th
                                   style={{
+                                    padding: "5px 9px",
+                                    textAlign: "left",
                                     fontSize: 9,
-                                    color: "#666",
                                     fontWeight: 700,
+                                    color: B.muted,
+                                    borderBottom: `2px solid ${B.border}`,
+                                    textTransform: "uppercase",
+                                    letterSpacing: ".05em",
+                                    background: B.bg,
                                   }}
                                 >
-                                  {pct}%
-                                </span>
-                              )}
-                            </div>
-                            <div style={{ flex: 1 }}>
-                              <div
-                                style={{
-                                  fontSize: 11,
-                                  color: B.text,
-                                  lineHeight: 1.4,
-                                }}
-                              >
-                                {taskName}
-                              </div>
-                              {isProc ? (
-                                <div
+                                  Task
+                                </th>
+                                <th
                                   style={{
-                                    fontSize: 10,
-                                    color: "#888",
-                                    marginTop: 2,
-                                    display: "flex",
-                                    gap: 10,
-                                    flexWrap: "wrap",
+                                    padding: "5px 9px",
+                                    textAlign: "left",
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    color: B.muted,
+                                    borderBottom: `2px solid ${B.border}`,
+                                    textTransform: "uppercase",
+                                    background: B.bg,
                                   }}
                                 >
-                                  {t.boq && (
-                                    <span>
-                                      BOQ: <b>{t.boq}</b>
-                                    </span>
-                                  )}
-                                  {t.po && (
-                                    <span>
-                                      PO:{" "}
-                                      <b
-                                        style={{
-                                          color:
-                                            t.po === "Done"
-                                              ? B.green
-                                              : "inherit",
-                                        }}
-                                      >
-                                        {t.po}
-                                      </b>
-                                    </span>
-                                  )}
-                                  {t.mat && (
-                                    <span>
-                                      Mat Delivery:{" "}
-                                      <b style={{ color: "#c62828" }}>
-                                        {t.mat}
-                                      </b>
-                                    </span>
-                                  )}
-                                </div>
-                              ) : (
-                                (t.start || t.end) && (
-                                  <div
-                                    style={{
-                                      fontSize: 10,
-                                      color: "#888",
-                                      marginTop: 2,
-                                    }}
-                                  >
-                                    {t.start && `Start: ${t.start}`}
-                                    {t.start && t.end && "  →  "}
-                                    {t.end && `End: ${t.end}`}
-                                  </div>
-                                )
-                              )}
-                            </div>
-                            <div style={{ minWidth: 60 }}>
-                              <MiniBar pct={pct} color={stage.color} h={4} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                  </div>
-                );
-              })}
-          </div>
-        );
-      })}
+                                  Detail
+                                </th>
+                                <th
+                                  style={{
+                                    padding: "5px 9px",
+                                    textAlign: "right",
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    color: B.muted,
+                                    borderBottom: `2px solid ${B.border}`,
+                                    textTransform: "uppercase",
+                                    background: B.bg,
+                                  }}
+                                >
+                                  %
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {grp.tasks.map((taskName, i) => {
+                                const t = td[taskName] || {};
+                                const pct = t.pct || 0;
+                                const isProc = t.type === "proc";
+                                const done = pct >= 100;
+                                return (
+                                  <tr key={taskName} style={{ background: i % 2 === 0 ? B.bg : "#fff" }}>
+                                    <td
+                                      style={{
+                                        padding: "7px 9px",
+                                        borderBottom: `1px solid ${B.border}`,
+                                        color: B.text,
+                                        maxWidth: 260,
+                                      }}
+                                    >
+                                      {taskName}
+                                    </td>
+                                    <td
+                                      style={{
+                                        padding: "7px 9px",
+                                        borderBottom: `1px solid ${B.border}`,
+                                        fontSize: 10,
+                                        color: B.muted,
+                                      }}
+                                    >
+                                      {isProc ? (
+                                        <span style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                          {t.boq && <span>BOQ: <b>{t.boq}</b></span>}
+                                          {t.po && <span>PO: <b style={{ color: t.po === "Done" ? B.green : "inherit" }}>{t.po}</b></span>}
+                                          {t.mat && <span>Mat: <b style={{ color: "#c62828" }}>{t.mat}</b></span>}
+                                        </span>
+                                      ) : (
+                                        (t.start || t.end) && (
+                                          <span>
+                                            {t.start && `Start ${t.start}`}
+                                            {t.start && t.end && " → "}
+                                            {t.end && `End ${t.end}`}
+                                          </span>
+                                        )
+                                      )}
+                                    </td>
+                                    <td
+                                      style={{
+                                        padding: "7px 9px",
+                                        borderBottom: `1px solid ${B.border}`,
+                                        textAlign: "right",
+                                      }}
+                                    >
+                                      <Badge
+                                        text={`${pct}%`}
+                                        bg={done ? "#e8f8ed" : pct > 0 ? "#fff9c4" : "#f5f5f5"}
+                                        border={done ? "#86d9a0" : pct > 0 ? "#f5e84a" : "#d0d0d0"}
+                                        color={done ? "#0d7a32" : pct > 0 ? "#8a7000" : "#666"}
+                                      />
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
     </div>
   );
 }
 
-// ── PROJECT MODAL ─────────────────────────────────────────────────────────────
-function Modal({ project, onClose, sizeUnit, stageConfig }) {
+
+// ── PROJECT FULL PAGE ─────────────────────────────────────────────────────────
+function ProjectPage({ project, onBack, sizeUnit, stageConfig }) {
   const cfg = STATUS[project.status] || STATUS["on-track"];
   const pendCfg = PEND[project.pendency || "None"] || PEND["None"];
   const stageIdx = STAGES.indexOf(project.stage);
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 100,
-        background: "rgba(0,0,0,0.55)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 16,
-      }}
-      onClick={onClose}
-    >
+    <div style={{ background: B.bg, minHeight: "100vh" }}>
       <div
         style={{
           background: "#fff",
-          borderRadius: 16,
-          width: "100%",
-          maxWidth: 740,
-          maxHeight: "92vh",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-          border: `2px solid ${B.border}`,
+          borderBottom: `1px solid ${B.border}`,
+          padding: "14px 24px",
+          position: "sticky",
+          top: 0,
+          zIndex: 10,
         }}
-        onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
+        <button
+          onClick={onBack}
+          style={{
+            background: "none",
+            border: `1px solid ${B.border}`,
+            borderRadius: 8,
+            padding: "6px 14px",
+            fontSize: 12,
+            fontWeight: 600,
+            color: B.blue,
+            cursor: "pointer",
+            marginBottom: 10,
+            fontFamily: "inherit",
+          }}
+        >
+          ← Back to Projects
+        </button>
+
         <div
           style={{
-            padding: "14px 20px",
-            background: project.category === "GH2" ? B.blueL : B.oliveL,
-            borderBottom: `1px solid ${B.border}`,
             display: "flex",
             alignItems: "center",
             gap: 12,
-            flexShrink: 0,
           }}
         >
           <div
@@ -1029,12 +1135,9 @@ function Modal({ project, onClose, sizeUnit, stageConfig }) {
             </div>
             <div
               style={{
-                fontSize: 16,
+                fontSize: 20,
                 fontWeight: 700,
                 color: B.text,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
               }}
             >
               {project.name}
@@ -1042,11 +1145,11 @@ function Modal({ project, onClose, sizeUnit, stageConfig }) {
           </div>
           <span
             style={{
-              fontSize: 11,
+              fontSize: 12,
               background: cfg.bg,
               color: cfg.text,
               border: `1px solid ${cfg.border}`,
-              padding: "3px 10px",
+              padding: "4px 12px",
               borderRadius: 20,
               fontWeight: 600,
               flexShrink: 0,
@@ -1054,28 +1157,24 @@ function Modal({ project, onClose, sizeUnit, stageConfig }) {
           >
             {cfg.label}
           </span>
-          <button
-            onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              fontSize: 20,
-              color: B.muted,
-              cursor: "pointer",
-              flexShrink: 0,
-            }}
-          >
-            ✕
-          </button>
         </div>
+      </div>
 
+      <div
+        style={{
+          maxWidth: 900,
+          margin: "0 auto",
+          padding: "20px 24px 60px",
+        }}
+      >
         {/* Journey bar */}
         <div
           style={{
-            padding: "10px 20px 12px",
-            background: "#fafafa",
-            borderBottom: `1px solid ${B.border}`,
-            flexShrink: 0,
+            padding: "14px 20px",
+            background: "#fff",
+            border: `1px solid ${B.border}`,
+            borderRadius: 12,
+            marginBottom: 16,
           }}
         >
           <div
@@ -1083,7 +1182,7 @@ function Modal({ project, onClose, sizeUnit, stageConfig }) {
               fontSize: 10,
               color: B.muted,
               letterSpacing: 1,
-              marginBottom: 6,
+              marginBottom: 8,
             }}
           >
             PROJECT JOURNEY
@@ -1134,56 +1233,34 @@ function Modal({ project, onClose, sizeUnit, stageConfig }) {
           </div>
         </div>
 
-        {/* Meta */}
+        {/* Row 0 — Key stats */}
+        <SecLabel text="Overview" />
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(4,1fr)",
-            borderBottom: `1px solid ${B.border}`,
-            flexShrink: 0,
+            gap: 10,
+            marginBottom: 16,
           }}
         >
-          {[
-            { l: "Size", v: fmtMW(project.capacityKwp, sizeUnit) },
-            { l: "Stage", v: project.stage },
-            { l: "PM", v: project.pm || "—" },
-            {
-              l: "Revenue",
-              v: project.revenue ? `₹${project.revenue} Cr` : "—",
-            },
-          ].map((m, i) => (
-            <div
-              key={i}
-              style={{
-                padding: "10px 16px",
-                borderRight: i < 3 ? `1px solid ${B.border}` : "none",
-              }}
-            >
-              <div style={{ fontSize: 11, color: B.muted }}>{m.l}</div>
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: B.text,
-                  marginTop: 2,
-                }}
-              >
-                {m.v}
-              </div>
-            </div>
-          ))}
+          <SmallCard label="Size" value={fmtMW(project.capacityKwp, sizeUnit)} accent={B.olive} />
+          <SmallCard label="Stage" value={project.stage} sub={cfg.label} accent={STAGE_COL[project.stage] || B.blue} />
+          <SmallCard label="PM" value={project.pm || "—"} accent={B.blue} italic={!project.pm} />
+          <SmallCard
+            label="Revenue"
+            value={project.revenue ? `₹${project.revenue} Cr` : "—"}
+            accent={B.green}
+          />
         </div>
 
-        {/* Details */}
+        {/* Row 1 — Details */}
+        <SecLabel text="Project Details" />
         <div
           style={{
-            padding: "10px 20px",
             display: "grid",
             gridTemplateColumns: "1fr 1fr 1fr",
-            gap: 8,
-            background: "#f9f9f9",
-            borderBottom: `1px solid ${B.border}`,
-            flexShrink: 0,
+            gap: 10,
+            marginBottom: 16,
           }}
         >
           {[
@@ -1203,18 +1280,28 @@ function Modal({ project, onClose, sizeUnit, stageConfig }) {
               key={i}
               style={{
                 background: "#fff",
-                borderRadius: 6,
-                padding: "6px 10px",
+                borderRadius: 8,
+                padding: "9px 12px",
                 border: `1px solid ${B.border}`,
               }}
             >
-              <div style={{ fontSize: 10, color: B.muted }}>{f.l}</div>
               <div
                 style={{
-                  fontSize: 11,
+                  fontSize: 9,
+                  fontWeight: 700,
+                  color: B.muted,
+                  textTransform: "uppercase",
+                  letterSpacing: ".05em",
+                }}
+              >
+                {f.l}
+              </div>
+              <div
+                style={{
+                  fontSize: 12,
                   fontWeight: 600,
                   color: B.text,
-                  marginTop: 1,
+                  marginTop: 3,
                 }}
               >
                 {f.v}
@@ -1223,28 +1310,42 @@ function Modal({ project, onClose, sizeUnit, stageConfig }) {
           ))}
         </div>
 
-        {/* Execution bar */}
+        {/* Row 2 — Execution progress */}
+        <SecLabel text="Execution Progress" />
         <div
           style={{
-            padding: "12px 20px",
-            borderBottom: `1px solid ${B.border}`,
-            flexShrink: 0,
+            padding: "16px 20px",
+            background: "#fff",
+            border: `1px solid ${B.border}`,
+            borderLeft: `3px solid ${pctCol(project.execPct)}`,
+            borderRadius: 12,
+            marginBottom: 16,
           }}
         >
           <div
             style={{
               display: "flex",
               justifyContent: "space-between",
-              marginBottom: 6,
+              alignItems: "baseline",
+              marginBottom: 8,
             }}
           >
-            <span style={{ fontSize: 12, fontWeight: 700, color: B.text }}>
-              EXECUTION PROGRESS
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                color: B.muted,
+                textTransform: "uppercase",
+                letterSpacing: ".08em",
+              }}
+            >
+              Overall completion
             </span>
             <span
               style={{
-                fontSize: 18,
+                fontSize: 22,
                 fontWeight: 700,
+                fontFamily: "monospace",
                 color: pctCol(project.execPct),
               }}
             >
@@ -1255,14 +1356,14 @@ function Modal({ project, onClose, sizeUnit, stageConfig }) {
             style={{
               height: 10,
               background: "#e0e0e0",
-              borderRadius: 5,
+              borderRadius: 6,
               overflow: "hidden",
             }}
           >
             <div
               style={{
                 height: 10,
-                borderRadius: 5,
+                borderRadius: 6,
                 width: `${project.execPct}%`,
                 background: pctCol(project.execPct),
                 transition: "width 0.5s",
@@ -1273,23 +1374,17 @@ function Modal({ project, onClose, sizeUnit, stageConfig }) {
 
         {/* Remarks + status */}
         {(project.remarks || project.ongoingStatus) && (
-          <div
-            style={{
-              padding: "10px 20px",
-              borderBottom: `1px solid ${B.border}`,
-              flexShrink: 0,
-            }}
-          >
+          <div style={{ marginBottom: 16 }}>
             {project.remarks && (
               <div
                 style={{
-                  padding: "8px 12px",
+                  padding: "10px 14px",
                   background: "#fef2f2",
                   border: "1px solid #f5a5a5",
-                  borderRadius: 8,
+                  borderRadius: 10,
                   display: "flex",
                   gap: 8,
-                  marginBottom: 8,
+                  marginBottom: 10,
                 }}
               >
                 <span style={{ color: "#c0392b", fontSize: 14, flexShrink: 0 }}>
@@ -1313,10 +1408,10 @@ function Modal({ project, onClose, sizeUnit, stageConfig }) {
             {project.ongoingStatus && (
               <div
                 style={{
-                  padding: "8px 12px",
+                  padding: "10px 14px",
                   background: "#e8f5e9",
                   border: "1px solid #86d9a0",
-                  borderRadius: 8,
+                  borderRadius: 10,
                 }}
               >
                 <div
@@ -1337,8 +1432,14 @@ function Modal({ project, onClose, sizeUnit, stageConfig }) {
           </div>
         )}
 
-        {/* Stage breakdown — scrollable */}
-        <div style={{ overflowY: "auto", flex: 1 }}>
+        {/* Stage breakdown */}
+        <div
+          style={{
+            background: "#fff",
+            border: `1px solid ${B.border}`,
+            borderRadius: 12,
+          }}
+        >
           <StageBreakdown project={project} stageConfig={stageConfig} />
         </div>
       </div>
@@ -1390,6 +1491,18 @@ function ProjectScreen({ projects, tabColor, emptyLabel, stageConfig }) {
     color: STAGE_COL[stage],
     items: filtered.filter((p) => p.stage === stage),
   })).filter((g) => g.items.length > 0);
+
+  // If a project is selected, render the full-page project view instead of the list
+  if (selected) {
+    return (
+      <ProjectPage
+        project={selected}
+        onBack={() => setSelected(null)}
+        sizeUnit={unit}
+        stageConfig={stageConfig}
+      />
+    );
+  }
 
   if (!projects.length)
     return (
@@ -2083,15 +2196,6 @@ function ProjectScreen({ projects, tabColor, emptyLabel, stageConfig }) {
             </tbody>
           </table>
         </div>
-      )}
-
-      {selected && (
-        <Modal
-          project={selected}
-          onClose={() => setSelected(null)}
-          sizeUnit={unit}
-          stageConfig={stageConfig}
-        />
       )}
     </div>
   );
