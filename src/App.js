@@ -1448,15 +1448,25 @@ function ProjectPage({ project, onBack, sizeUnit, stageConfig }) {
 }
 
 // ── PROJECT SCREEN ────────────────────────────────────────────────────────────
-function ProjectScreen({ projects, tabColor, emptyLabel, stageConfig }) {
+function ProjectScreen({
+  projects,
+  tabColor,
+  emptyLabel,
+  stageConfig,
+  getStageConfig,
+  showVerticalToggle,
+}) {
   const [view, setView] = useState("kanban");
   const [stageF, setStageF] = useState("All");
   const [statusF, setStatusF] = useState("All");
   const [pmF, setPmF] = useState("All");
   const [pendF, setPendF] = useState("All");
+  const [vertF, setVertF] = useState("All");
   const [unit, setUnit] = useState("MW");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
+  const resolveStageConfig = (p) =>
+    getStageConfig ? getStageConfig(p) : stageConfig;
 
   const allPMs = ["All", ...new Set(projects.map((p) => p.pm).filter(Boolean))];
   const allPends = [
@@ -1477,6 +1487,7 @@ function ProjectScreen({ projects, tabColor, emptyLabel, stageConfig }) {
     .filter((p) => statusF === "All" || p.status === statusF)
     .filter((p) => pmF === "All" || p.pm === pmF)
     .filter((p) => pendF === "All" || p.pendency === pendF)
+    .filter((p) => vertF === "All" || p.type === vertF)
     .sort(
       (a, b) =>
         (({ critical: 0, warning: 1, "on-track": 2, done: 3 }[a.status] || 2) -
@@ -1499,7 +1510,7 @@ function ProjectScreen({ projects, tabColor, emptyLabel, stageConfig }) {
         project={selected}
         onBack={() => setSelected(null)}
         sizeUnit={unit}
-        stageConfig={stageConfig}
+        stageConfig={resolveStageConfig(selected)}
       />
     );
   }
@@ -1726,6 +1737,38 @@ function ProjectScreen({ projects, tabColor, emptyLabel, stageConfig }) {
         )}
 
         <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          {showVerticalToggle && (
+            <div
+              style={{
+                display: "flex",
+                gap: 2,
+                background: B.oliveL,
+                borderRadius: 8,
+                padding: 3,
+              }}
+            >
+              {["All", "Ground Mount", "Rooftop"].map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setVertF(v)}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 6,
+                    border: "none",
+                    background: vertF === v ? "#fff" : "transparent",
+                    color: vertF === v ? B.text : B.muted,
+                    fontSize: 11,
+                    fontWeight: vertF === v ? 700 : 400,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {v === "Ground Mount" ? "Ground Mount" : v === "Rooftop" ? "Rooftop" : "All"}
+                </button>
+              ))}
+            </div>
+          )}
           <div
             style={{
               display: "flex",
@@ -1870,8 +1913,34 @@ function ProjectScreen({ projects, tabColor, emptyLabel, stageConfig }) {
                           marginBottom: 4,
                         }}
                       >
-                        <span style={{ fontSize: 9, color: B.muted }}>
-                          {p.id}
+                        <span
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <span style={{ fontSize: 9, color: B.muted }}>
+                            {p.id}
+                          </span>
+                          {showVerticalToggle && p.type && (
+                            <span
+                              style={{
+                                fontSize: 8,
+                                fontWeight: 700,
+                                padding: "1px 5px",
+                                borderRadius: 6,
+                                background:
+                                  p.type === "Rooftop"
+                                    ? B.blueL
+                                    : B.oliveL,
+                                color:
+                                  p.type === "Rooftop" ? B.blue : B.olive,
+                              }}
+                            >
+                              {p.type === "Rooftop" ? "RT" : "GM"}
+                            </span>
+                          )}
                         </span>
                         {p.pendency && p.pendency !== "None" && (
                           <span
@@ -2003,6 +2072,7 @@ function ProjectScreen({ projects, tabColor, emptyLabel, stageConfig }) {
                 {[
                   "Project",
                   "ID",
+                  ...(showVerticalToggle ? ["Type"] : []),
                   "Stage",
                   "Status",
                   "Pendency",
@@ -2069,6 +2139,23 @@ function ProjectScreen({ projects, tabColor, emptyLabel, stageConfig }) {
                     >
                       {p.id}
                     </td>
+                    {showVerticalToggle && (
+                      <td style={{ padding: "10px 14px" }}>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: "2px 7px",
+                            borderRadius: 6,
+                            background:
+                              p.type === "Rooftop" ? B.blueL : B.oliveL,
+                            color: p.type === "Rooftop" ? B.blue : B.olive,
+                          }}
+                        >
+                          {p.type === "Rooftop" ? "Rooftop" : "Ground Mount"}
+                        </span>
+                      </td>
+                    )}
                     <td style={{ padding: "10px 14px" }}>
                       <span
                         style={{
@@ -3230,7 +3317,7 @@ function Loading() {
 
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [screen, setScreen] = useState("gm");
+  const [screen, setScreen] = useState("solar");
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [gm, setGm] = useState([]);
@@ -3269,14 +3356,11 @@ export default function App() {
 
   const NAV = [
     {
-      id: "gm",
-      label: "Ground Mount",
-      badge: gm.filter((p) => p.status === "critical").length,
-    },
-    {
-      id: "rt",
-      label: "Rooftop",
-      badge: rt.filter((p) => p.status === "critical").length,
+      id: "solar",
+      label: "Solar (Ground Mount + Rooftop)",
+      badge:
+        gm.filter((p) => p.status === "critical").length +
+        rt.filter((p) => p.status === "critical").length,
     },
     {
       id: "h2",
@@ -3425,20 +3509,15 @@ export default function App() {
         <Loading />
       ) : (
         <>
-          {screen === "gm" && (
+          {screen === "solar" && (
             <ProjectScreen
-              projects={gm}
+              projects={[...gm, ...rt]}
               tabColor={B.olive}
-              emptyLabel="No Ground Mount Projects"
-              stageConfig={GM_STAGES}
-            />
-          )}
-          {screen === "rt" && (
-            <ProjectScreen
-              projects={rt}
-              tabColor={B.blue}
-              emptyLabel="No Rooftop Projects"
-              stageConfig={RT_STAGES}
+              emptyLabel="No Solar Projects"
+              getStageConfig={(p) =>
+                p.type === "Rooftop" ? RT_STAGES : GM_STAGES
+              }
+              showVerticalToggle
             />
           )}
           {screen === "h2" && (
