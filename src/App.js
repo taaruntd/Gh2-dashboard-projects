@@ -89,6 +89,16 @@ const STAGE_COL = {
   Commissioning: "#1B5E20",
   Handover: "#006064",
 };
+// Planning-time share of total project duration per stage, used only for the
+// reverse (T-minus) Gantt view — these are estimates, not measured durations.
+const STAGE_WEIGHTS = {
+  "Project Won": 0,
+  "Design & Engineering": 0.1,
+  Procurement: 0.15,
+  Execution: 0.6,
+  Commissioning: 0.1,
+  Handover: 0.05,
+};
 
 // ── GM STAGE CONFIG ───────────────────────────────────────────────────────────
 const GM_STAGES = [
@@ -569,18 +579,91 @@ const fmtMW = (kw, unit) => {
 };
 const pctCol = (p) => (p >= 90 ? B.green : p >= 40 ? "#e07b20" : "#c0392b");
 const parseDateStr = (s) => {
-  if (!s || typeof s !== "string") return null;
+  if (s === null || s === undefined || s === "") return null;
+
+  // Excel serial number (e.g. if Power Automate ever passes raw numbers)
+  if (typeof s === "number") {
+    const d = new Date(Date.UTC(1899, 11, 30) + s * 86400000);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  if (typeof s !== "string") return null;
   const clean = s.trim();
   if (!clean || clean.toLowerCase() === "tbd" || clean === "-") return null;
-  const p = clean.split("-");
+
+  // ISO 8601 — e.g. "2026-08-25T00:00:00.000Z" (what Power Automate returns
+  // for a genuine Excel Date-typed cell)
+  if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
+    const d = new Date(clean);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // Slash or dash separated, day-first, 1-2 digit day/month allowed
+  // (e.g. "25/8/2026", "24/9/2026", "15-10-2025")
+  const sep = clean.includes("/") ? "/" : clean.includes("-") ? "-" : null;
+  if (!sep) return null;
+  const p = clean.split(sep).map((x) => x.trim());
   if (p.length !== 3) return null;
-  const d = new Date(`${p[2]}-${p[1]}-${p[0]}`);
+  const [dd, mm, yyyy] = p;
+  if (!/^\d{1,2}$/.test(dd) || !/^\d{1,2}$/.test(mm) || !/^\d{4}$/.test(yyyy))
+    return null;
+  const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
   return isNaN(d.getTime()) ? null : d;
 };
 const fmtShortDate = (d) =>
   d
     ? d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })
     : "—";
+
+// Derive a stage's actual date window from its task-level dates.
+// Procurement tasks don't have start/end — they use PO Date → Material
+// Delivery as a stand-in window instead.
+function computeStageRanges(project, stageConfig) {
+  const td = project.tasks || {};
+  return stageConfig
+    .map((stage) => {
+      const taskNames = stage.groups.flatMap((g) => g.tasks);
+      let starts = [];
+      let ends = [];
+      let anyData = false;
+      taskNames.forEach((tn) => {
+        const t = td[tn];
+        if (!t) return;
+        if (t.type === "proc") {
+          const s = parseDateStr(t.po);
+          const e = parseDateStr(t.mat);
+          if (s || e) anyData = true;
+          if (s) starts.push(s);
+          if (e) ends.push(e);
+        } else {
+          const s = parseDateStr(t.start);
+          const e = parseDateStr(t.end);
+          if (s || e) anyData = true;
+          if (s) starts.push(s);
+          if (e) ends.push(e);
+        }
+      });
+      if (!anyData) return { stage, start: null, end: null };
+      const start = starts.length
+        ? new Date(Math.min(...starts.map((d) => d.getTime())))
+        : null;
+      const end = ends.length
+        ? new Date(Math.max(...ends.map((d) => d.getTime())))
+        : null;
+      return { stage, start, end };
+    })
+    .filter((r) => r.start || r.end);
+}
+
+// Anchor date for T-minus (reverse) planning = Handover stage's end date,
+// falling back to the latest known stage end, then Contract/Exp. Commissioning.
+function getProjectAnchor(project, stageRanges) {
+  const handover = stageRanges.find((r) => r.stage.id === "hand");
+  if (handover?.end) return handover.end;
+  const allEnds = stageRanges.map((r) => r.end).filter(Boolean);
+  if (allEnds.length) return new Date(Math.max(...allEnds.map((d) => d.getTime())));
+  return parseDateStr(project.contractEnd) || parseDateStr(project.expComm) || null;
+}
 
 // ── TASK EXTRACTOR ────────────────────────────────────────────────────────────
 const META = new Set([
@@ -1445,6 +1528,9 @@ function ProjectPage({ project, onBack, sizeUnit, stageConfig }) {
           </div>
         )}
 
+        {/* Stage timeline */}
+        <StageTimelineGantt project={project} stageConfig={stageConfig} />
+
         {/* Stage breakdown */}
         <div
           style={{
@@ -1460,16 +1546,237 @@ function ProjectPage({ project, onBack, sizeUnit, stageConfig }) {
   );
 }
 
-// ── PROJECT SCREEN ────────────────────────────────────────────────────────────
-// ── GANTT VIEW ─────────────────────────────────────────────────────────────
-function GanttView({ projects, onSelect }) {
-  const [range, setRange] = useState("all"); // all | 90 | 180
+// ── STAGE TIMELINE GANTT (single project) ──────────────────────────────────
+function StageTimelineGantt({ project, stageConfig }) {
+  const [reverse, setReverse] = useState(false);
+  const ranges = computeStageRanges(project, stageConfig);
 
-  const rows = projects.map((p) => {
+  if (!ranges.length) {
+    return (
+      <div
+        style={{
+          background: "#fff",
+          border: `1px solid ${B.border}`,
+          borderRadius: 12,
+          padding: "14px 16px",
+          fontSize: 11,
+          color: B.muted,
+          fontStyle: "italic",
+        }}
+      >
+        No task-level dates on file yet for this project — fill Start/End
+        (or PO/Material) dates in the tracker to see a stage timeline here.
+      </div>
+    );
+  }
+
+  const anchor = getProjectAnchor(project, ranges);
+  const today = new Date();
+
+  const withFallback = ranges.map((r) => {
+    let { start, end } = r;
+    let estimated = false;
+    if (!start && end) {
+      start = new Date(end.getTime() - 20 * 86400000);
+      estimated = true;
+    }
+    if (start && !end) {
+      end = new Date(start.getTime() + 20 * 86400000);
+      estimated = true;
+    }
+    return { ...r, start, end, estimated };
+  });
+
+  const allStarts = withFallback.map((r) => r.start.getTime());
+  const allEnds = withFallback.map((r) => r.end.getTime());
+  let axisStart = new Date(Math.min(...allStarts, today.getTime()) - 10 * 86400000);
+  let axisEnd = new Date(Math.max(...allEnds, today.getTime()) + 10 * 86400000);
+  const totalMs = axisEnd.getTime() - axisStart.getTime();
+  const pctOf = (d) =>
+    Math.min(100, Math.max(0, ((d.getTime() - axisStart.getTime()) / totalMs) * 100));
+
+  const months = [];
+  const cursor = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
+  while (cursor <= axisEnd) {
+    months.push(new Date(cursor));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  const todayPct = pctOf(today);
+
+  const tMinus = (d) =>
+    anchor ? Math.round((anchor.getTime() - d.getTime()) / 86400000) : null;
+
+  return (
+    <div
+      style={{
+        background: "#fff",
+        border: `1px solid ${B.border}`,
+        borderRadius: 12,
+        overflow: "hidden",
+        marginBottom: 16,
+      }}
+    >
+      <div
+        style={{
+          padding: "10px 16px",
+          borderBottom: `1px solid ${B.border}`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div style={{ fontSize: 11, color: B.muted }}>
+          <strong style={{ color: B.text }}>Stage Timeline</strong> — derived
+          from task-level dates. Overlapping bars mean stages genuinely ran
+          concurrently.
+        </div>
+        <div style={{ display: "flex", gap: 2, background: B.oliveL, borderRadius: 8, padding: 3 }}>
+          {[
+            [false, "Calendar"],
+            [true, "T-minus (Handover)"],
+          ].map(([v, l]) => (
+            <button
+              key={l}
+              onClick={() => setReverse(v)}
+              disabled={v && !anchor}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 6,
+                border: "none",
+                background: reverse === v ? "#fff" : "transparent",
+                color: v && !anchor ? "#ccc" : reverse === v ? B.text : B.muted,
+                fontSize: 10,
+                fontWeight: reverse === v ? 700 : 400,
+                cursor: v && !anchor ? "not-allowed" : "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ padding: "12px 16px" }}>
+        {!reverse && (
+          <div
+            style={{
+              display: "flex",
+              position: "relative",
+              height: 20,
+              borderBottom: `1px solid ${B.border}`,
+              marginLeft: 170,
+              marginBottom: 4,
+            }}
+          >
+            {months.map((m, i) => (
+              <div
+                key={i}
+                style={{
+                  position: "absolute",
+                  left: `${pctOf(m)}%`,
+                  borderLeft: `1px solid ${B.border}`,
+                  paddingLeft: 4,
+                  fontSize: 9,
+                  color: B.muted,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {m.toLocaleDateString("en-IN", { month: "short", year: "2-digit" })}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {withFallback.map(({ stage, start, end, estimated }) => {
+          const left = pctOf(start);
+          const width = Math.max(1.2, pctOf(end) - pctOf(start));
+          return (
+            <div
+              key={stage.id}
+              style={{ display: "flex", alignItems: "center", minHeight: 34 }}
+            >
+              <div
+                style={{
+                  width: 170,
+                  flexShrink: 0,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: stage.color,
+                  paddingRight: 8,
+                }}
+              >
+                {stage.label}
+              </div>
+              <div style={{ flex: 1, position: "relative", height: 26 }}>
+                {!reverse && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: `${todayPct}%`,
+                      top: -4,
+                      bottom: -4,
+                      width: 1,
+                      background: B.blue,
+                      opacity: 0.4,
+                    }}
+                  />
+                )}
+                <div
+                  title={
+                    reverse && anchor
+                      ? `T-${tMinus(start)}d → T-${tMinus(end)}d before Handover`
+                      : `${fmtShortDate(start)} → ${fmtShortDate(end)}`
+                  }
+                  style={{
+                    position: "absolute",
+                    left: `${left}%`,
+                    width: `${width}%`,
+                    top: 3,
+                    height: 20,
+                    borderRadius: 5,
+                    background: stage.light,
+                    border: `1.5px ${estimated ? "dashed" : "solid"} ${stage.color}`,
+                  }}
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 8,
+                      fontWeight: 700,
+                      color: stage.color,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {reverse && anchor
+                      ? `T-${tMinus(start)}d → T-${tMinus(end)}d`
+                      : `${fmtShortDate(start)} → ${fmtShortDate(end)}`}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function GanttView({ projects, onSelect, getStageConfig }) {
+  const [range, setRange] = useState("all"); // all | 90 | 180
+  const [detail, setDetail] = useState("overview"); // overview | stages
+  const [reverse, setReverse] = useState(false);
+  const today = new Date();
+
+  // ── Overview rows: one bar per project (PPA/Contract span) ──
+  const overviewRows = projects.map((p) => {
     const modeNorm = (p.mode || "").trim().toLowerCase();
     const usesPPA = modeNorm === "resco" || modeNorm === "ppa";
-    // EPC/Capex projects don't run on a PPA — only Contract Date matters for them.
-    // RESCO/PPA-mode projects are anchored by PPA signing date.
     const start = usesPPA ? parseDateStr(p.ppaDate) : null;
     let end = parseDateStr(p.contractEnd) || parseDateStr(p.expComm);
     let estimated = false;
@@ -1492,51 +1799,84 @@ function GanttView({ projects, onSelect }) {
     };
   });
 
-  const dated = rows.filter((r) => r.hasDates);
-  const today = new Date();
+  // ── Stage rows: per-project array of overlapping stage segments ──
+  const stageRows = projects.map((p) => {
+    const cfg = getStageConfig ? getStageConfig(p) : [];
+    const ranges = computeStageRanges(p, cfg).map((r) => {
+      let { start, end } = r;
+      let estimated = false;
+      if (!start && end) {
+        start = new Date(end.getTime() - 20 * 86400000);
+        estimated = true;
+      }
+      if (start && !end) {
+        end = new Date(start.getTime() + 20 * 86400000);
+        estimated = true;
+      }
+      return { ...r, start, end, estimated };
+    });
+    const anchor = getProjectAnchor(p, ranges);
+    return { p, ranges, anchor, hasDates: ranges.length > 0 };
+  });
 
+  const activeRows = detail === "overview" ? overviewRows : stageRows;
+  const dated = activeRows.filter((r) => r.hasDates);
+
+  // ── Axis (calendar mode only — T-minus normalizes per project) ──
   let axisStart, axisEnd;
-  if (dated.length) {
-    axisStart = new Date(
-      Math.min(...dated.map((r) => r.start.getTime()), today.getTime())
-    );
-    axisEnd = new Date(
-      Math.max(...dated.map((r) => r.end.getTime()), today.getTime())
-    );
-    // padding
-    axisStart = new Date(axisStart.getTime() - 15 * 86400000);
-    axisEnd = new Date(axisEnd.getTime() + 15 * 86400000);
+  if (!reverse) {
+    if (dated.length) {
+      const allDates =
+        detail === "overview"
+          ? dated.flatMap((r) => [r.start, r.end])
+          : dated.flatMap((r) => r.ranges.flatMap((x) => [x.start, x.end]));
+      axisStart = new Date(Math.min(...allDates.map((d) => d.getTime()), today.getTime()));
+      axisEnd = new Date(Math.max(...allDates.map((d) => d.getTime()), today.getTime()));
+      axisStart = new Date(axisStart.getTime() - 15 * 86400000);
+      axisEnd = new Date(axisEnd.getTime() + 15 * 86400000);
+    } else {
+      axisStart = new Date(today.getTime() - 30 * 86400000);
+      axisEnd = new Date(today.getTime() + 150 * 86400000);
+    }
+    if (range !== "all") {
+      const days = Number(range);
+      axisStart = new Date(today.getTime() - 15 * 86400000);
+      axisEnd = new Date(today.getTime() + days * 86400000);
+    }
   } else {
-    axisStart = new Date(today.getTime() - 30 * 86400000);
-    axisEnd = new Date(today.getTime() + 150 * 86400000);
+    // T-minus axis: fixed window of 0 to 400 days before handover, same scale for every project
+    axisStart = 0;
+    axisEnd = range === "all" ? 400 : Number(range);
   }
 
-  if (range !== "all") {
-    const days = Number(range);
-    axisStart = new Date(today.getTime() - 15 * 86400000);
-    axisEnd = new Date(today.getTime() + days * 86400000);
-  }
-
-  const totalMs = axisEnd.getTime() - axisStart.getTime();
+  const totalSpan = reverse ? axisEnd - axisStart : axisEnd.getTime() - axisStart.getTime();
   const pctOf = (d) =>
-    Math.min(100, Math.max(0, ((d.getTime() - axisStart.getTime()) / totalMs) * 100));
+    reverse
+      ? Math.min(100, Math.max(0, 100 - (d / totalSpan) * 100))
+      : Math.min(100, Math.max(0, ((d.getTime() - axisStart.getTime()) / totalSpan) * 100));
 
-  // month gridlines
   const months = [];
-  const cursor = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
-  while (cursor <= axisEnd) {
-    months.push(new Date(cursor));
-    cursor.setMonth(cursor.getMonth() + 1);
+  if (!reverse) {
+    const cursor = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
+    while (cursor <= axisEnd) {
+      months.push(new Date(cursor));
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
   }
+  const todayPct = reverse ? null : pctOf(today);
 
-  const sorted = [...rows].sort((a, b) => {
+  const sortedOverview = [...overviewRows].sort((a, b) => {
     if (a.hasDates && b.hasDates) return a.start - b.start;
     if (a.hasDates) return -1;
     if (b.hasDates) return 1;
     return 0;
   });
-
-  const todayPct = pctOf(today);
+  const sortedStages = [...stageRows].sort((a, b) => {
+    if (a.hasDates && b.hasDates) return a.ranges[0].start - b.ranges[0].start;
+    if (a.hasDates) return -1;
+    if (b.hasDates) return 1;
+    return 0;
+  });
 
   return (
     <div
@@ -1554,41 +1894,97 @@ function GanttView({ projects, onSelect }) {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 8,
         }}
       >
-        <div style={{ fontSize: 11, color: B.muted }}>
-          <strong style={{ color: B.text }}>RESCO/PPA</strong> mode bars run
-          PPA Sign Date → Contract End. <strong style={{ color: B.text }}>EPC/Capex</strong>{" "}
-          mode bars use Contract Date only (no PPA). Falls back to Exp.
-          Commissioning if Contract End is blank. Fill shows Execution %.
-          Dashed border = estimated timeline (missing a date).
+        <div style={{ fontSize: 11, color: B.muted, maxWidth: 480 }}>
+          {detail === "overview" ? (
+            <>
+              <strong style={{ color: B.text }}>RESCO/PPA</strong> bars run PPA
+              Sign → Contract End. <strong style={{ color: B.text }}>EPC/Capex</strong>{" "}
+              use Contract Date only. Fill = Execution %.
+            </>
+          ) : (
+            <>
+              Bars = <strong style={{ color: B.text }}>actual stage windows</strong>{" "}
+              from task dates — overlapping bars mean stages genuinely ran
+              concurrently. {reverse && "T-minus mode normalizes every project so Handover = 0, for cross-project comparison."}
+            </>
+          )}
         </div>
-        <div style={{ display: "flex", gap: 2, background: B.oliveL, borderRadius: 8, padding: 3 }}>
-          {[["all", "Full"], ["90", "90d"], ["180", "180d"]].map(([v, l]) => (
-            <button
-              key={v}
-              onClick={() => setRange(v)}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 6,
-                border: "none",
-                background: range === v ? "#fff" : "transparent",
-                color: range === v ? B.text : B.muted,
-                fontSize: 10,
-                fontWeight: range === v ? 700 : 400,
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-            >
-              {l}
-            </button>
-          ))}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 2, background: B.oliveL, borderRadius: 8, padding: 3 }}>
+            {[["overview", "Overview"], ["stages", "By Stage"]].map(([v, l]) => (
+              <button
+                key={v}
+                onClick={() => setDetail(v)}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: detail === v ? "#fff" : "transparent",
+                  color: detail === v ? B.text : B.muted,
+                  fontSize: 10,
+                  fontWeight: detail === v ? 700 : 400,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+          {detail === "stages" && (
+            <div style={{ display: "flex", gap: 2, background: B.oliveL, borderRadius: 8, padding: 3 }}>
+              {[[false, "Calendar"], [true, "T-minus"]].map(([v, l]) => (
+                <button
+                  key={l}
+                  onClick={() => setReverse(v)}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 6,
+                    border: "none",
+                    background: reverse === v ? "#fff" : "transparent",
+                    color: reverse === v ? B.text : B.muted,
+                    fontSize: 10,
+                    fontWeight: reverse === v ? 700 : 400,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 2, background: B.oliveL, borderRadius: 8, padding: 3 }}>
+            {[["all", "Full"], ["90", reverse ? "90d" : "90d"], ["180", "180d"]].map(([v, l]) => (
+              <button
+                key={v}
+                onClick={() => setRange(v)}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: range === v ? "#fff" : "transparent",
+                  color: range === v ? B.text : B.muted,
+                  fontSize: 10,
+                  fontWeight: range === v ? 700 : 400,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       <div style={{ overflowX: "auto" }}>
         <div style={{ minWidth: 900 }}>
-          {/* month axis header */}
+          {/* axis header */}
           <div
             style={{
               display: "flex",
@@ -1598,149 +1994,283 @@ function GanttView({ projects, onSelect }) {
               marginLeft: 220,
             }}
           >
-            {months.map((m, i) => {
-              const left = pctOf(m);
-              return (
-                <div
-                  key={i}
-                  style={{
-                    position: "absolute",
-                    left: `${left}%`,
-                    top: 0,
-                    bottom: 0,
-                    borderLeft: `1px solid ${B.border}`,
-                    paddingLeft: 4,
-                    fontSize: 9,
-                    color: B.muted,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {m.toLocaleDateString("en-IN", { month: "short", year: "2-digit" })}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* rows */}
-          {sorted.map(({ p, start, end, estimated, usesPPA, hasDates }) => {
-            const cfg = STATUS[p.status] || STATUS["on-track"];
-            const left = hasDates ? pctOf(start) : 0;
-            const width = hasDates ? Math.max(1, pctOf(end) - pctOf(start)) : 0;
-            return (
-              <div
-                key={p.id}
-                onClick={() => onSelect(p)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  minHeight: 40,
-                  borderBottom: `1px solid ${B.border}`,
-                  cursor: "pointer",
-                }}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.background = B.bg)
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.background = "transparent")
-                }
-              >
-                <div
-                  style={{
-                    width: 220,
-                    flexShrink: 0,
-                    padding: "6px 10px",
-                    borderRight: `1px solid ${B.border}`,
-                  }}
-                >
+            {!reverse
+              ? months.map((m, i) => (
                   <div
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: B.text,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {p.name}
-                  </div>
-                  <div style={{ fontSize: 9, color: B.muted }}>
-                    {p.id} · {p.stage}
-                  </div>
-                </div>
-                <div style={{ flex: 1, position: "relative", height: 40 }}>
-                  {/* today marker */}
-                  <div
+                    key={i}
                     style={{
                       position: "absolute",
-                      left: `${todayPct}%`,
+                      left: `${pctOf(m)}%`,
                       top: 0,
                       bottom: 0,
-                      width: 1,
-                      background: B.blue,
-                      opacity: 0.5,
+                      borderLeft: `1px solid ${B.border}`,
+                      paddingLeft: 4,
+                      fontSize: 9,
+                      color: B.muted,
+                      whiteSpace: "nowrap",
                     }}
-                  />
-                  {hasDates ? (
+                  >
+                    {m.toLocaleDateString("en-IN", { month: "short", year: "2-digit" })}
+                  </div>
+                ))
+              : [0, 0.25, 0.5, 0.75, 1].map((frac, i) => {
+                  const tVal = Math.round(axisEnd - frac * (axisEnd - axisStart));
+                  return (
                     <div
-                      title={`${usesPPA ? "PPA Signed" : "Est. start"} ${fmtShortDate(start)} → Contract ${fmtShortDate(end)} · ${p.mode || "—"} · ${p.execPct || 0}% complete`}
+                      key={i}
                       style={{
                         position: "absolute",
-                        left: `${left}%`,
-                        width: `${width}%`,
-                        top: 9,
-                        height: 22,
-                        borderRadius: 6,
-                        background: cfg.bg,
-                        border: `1.5px ${estimated ? "dashed" : "solid"} ${cfg.border}`,
-                        overflow: "hidden",
+                        left: `${frac * 100}%`,
+                        top: 0,
+                        bottom: 0,
+                        borderLeft: `1px solid ${B.border}`,
+                        paddingLeft: 4,
+                        fontSize: 9,
+                        color: B.muted,
+                        whiteSpace: "nowrap",
                       }}
                     >
+                      T-{tVal}d
+                    </div>
+                  );
+                })}
+          </div>
+
+          {/* OVERVIEW MODE */}
+          {detail === "overview" &&
+            sortedOverview.map(({ p, start, end, estimated, usesPPA, hasDates }) => {
+              const cfg = STATUS[p.status] || STATUS["on-track"];
+              const left = hasDates ? pctOf(start) : 0;
+              const width = hasDates ? Math.max(1, pctOf(end) - pctOf(start)) : 0;
+              return (
+                <div
+                  key={p.id}
+                  onClick={() => onSelect(p)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    minHeight: 40,
+                    borderBottom: `1px solid ${B.border}`,
+                    cursor: "pointer",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = B.bg)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  <div
+                    style={{
+                      width: 220,
+                      flexShrink: 0,
+                      padding: "6px 10px",
+                      borderRight: `1px solid ${B.border}`,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: B.text,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {p.name}
+                    </div>
+                    <div style={{ fontSize: 9, color: B.muted }}>
+                      {p.id} · {p.stage}
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, position: "relative", height: 40 }}>
+                    <div
+                      style={{
+                        position: "absolute",
+                        left: `${todayPct}%`,
+                        top: 0,
+                        bottom: 0,
+                        width: 1,
+                        background: B.blue,
+                        opacity: 0.5,
+                      }}
+                    />
+                    {hasDates ? (
                       <div
+                        title={`${usesPPA ? "PPA Signed" : "Est. start"} ${fmtShortDate(start)} → Contract ${fmtShortDate(end)} · ${p.mode || "—"} · ${p.execPct || 0}% complete`}
                         style={{
-                          height: "100%",
-                          width: `${Math.min(100, p.execPct || 0)}%`,
-                          background: cfg.dot,
-                          opacity: 0.85,
+                          position: "absolute",
+                          left: `${left}%`,
+                          width: `${width}%`,
+                          top: 9,
+                          height: 22,
+                          borderRadius: 6,
+                          background: cfg.bg,
+                          border: `1.5px ${estimated ? "dashed" : "solid"} ${cfg.border}`,
+                          overflow: "hidden",
                         }}
-                      />
+                      >
+                        <div
+                          style={{
+                            height: "100%",
+                            width: `${Math.min(100, p.execPct || 0)}%`,
+                            background: cfg.dot,
+                            opacity: 0.85,
+                          }}
+                        />
+                        <div
+                          style={{
+                            position: "absolute",
+                            inset: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 9,
+                            fontWeight: 700,
+                            color: (p.execPct || 0) > 45 ? "#fff" : cfg.text,
+                          }}
+                        >
+                          {p.execPct || 0}%
+                        </div>
+                      </div>
+                    ) : (
                       <div
                         style={{
                           position: "absolute",
-                          inset: 0,
+                          left: 8,
+                          top: 9,
+                          height: 22,
                           display: "flex",
                           alignItems: "center",
-                          justifyContent: "center",
                           fontSize: 9,
-                          fontWeight: 700,
-                          color: (p.execPct || 0) > 45 ? "#fff" : cfg.text,
+                          color: B.muted,
+                          fontStyle: "italic",
                         }}
                       >
-                        {p.execPct || 0}%
+                        No {usesPPA ? "PPA/Contract" : "Contract"} date on file — {p.stage}
                       </div>
-                    </div>
-                  ) : (
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+          {/* BY STAGE MODE — overlapping stage segments per project */}
+          {detail === "stages" &&
+            sortedStages.map(({ p, ranges, anchor, hasDates }) => {
+              const rowH = Math.max(40, 10 + ranges.length * 16);
+              return (
+                <div
+                  key={p.id}
+                  onClick={() => onSelect(p)}
+                  style={{
+                    display: "flex",
+                    alignItems: "stretch",
+                    minHeight: rowH,
+                    borderBottom: `1px solid ${B.border}`,
+                    cursor: "pointer",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = B.bg)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  <div
+                    style={{
+                      width: 220,
+                      flexShrink: 0,
+                      padding: "6px 10px",
+                      borderRight: `1px solid ${B.border}`,
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "center",
+                    }}
+                  >
                     <div
                       style={{
-                        position: "absolute",
-                        left: 8,
-                        top: 9,
-                        height: 22,
-                        display: "flex",
-                        alignItems: "center",
-                        fontSize: 9,
-                        color: B.muted,
-                        fontStyle: "italic",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: B.text,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                     >
-                      No {usesPPA ? "PPA/Contract" : "Contract"} date on
-                      file — {p.stage}
+                      {p.name}
                     </div>
-                  )}
+                    <div style={{ fontSize: 9, color: B.muted }}>
+                      {p.id} · {p.stage}
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, position: "relative", padding: "5px 0" }}>
+                    {!reverse && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          left: `${todayPct}%`,
+                          top: 0,
+                          bottom: 0,
+                          width: 1,
+                          background: B.blue,
+                          opacity: 0.4,
+                        }}
+                      />
+                    )}
+                    {!hasDates && (
+                      <div
+                        style={{
+                          fontSize: 9,
+                          color: B.muted,
+                          fontStyle: "italic",
+                          padding: "10px 8px",
+                        }}
+                      >
+                        No task dates on file — {p.stage}
+                      </div>
+                    )}
+                    {hasDates &&
+                      ranges.map(({ stage, start, end, estimated }, idx) => {
+                        const sPos = reverse
+                          ? anchor
+                            ? (anchor.getTime() - start.getTime()) / 86400000
+                            : null
+                          : start;
+                        const ePos = reverse
+                          ? anchor
+                            ? (anchor.getTime() - end.getTime()) / 86400000
+                            : null
+                          : end;
+                        if (reverse && (sPos === null || ePos === null)) return null;
+                        const left = reverse ? pctOf(sPos) : pctOf(start);
+                        const rightEdge = reverse ? pctOf(ePos) : pctOf(end);
+                        const width = Math.max(1, Math.abs(rightEdge - left));
+                        const barLeft = reverse ? Math.min(left, rightEdge) : left;
+                        return (
+                          <div
+                            key={stage.id}
+                            title={`${stage.label}: ${fmtShortDate(start)} → ${fmtShortDate(end)}`}
+                            style={{
+                              position: "absolute",
+                              left: `${barLeft}%`,
+                              width: `${width}%`,
+                              top: 4 + idx * 15,
+                              height: 13,
+                              borderRadius: 4,
+                              background: stage.light,
+                              border: `1px ${estimated ? "dashed" : "solid"} ${stage.color}`,
+                              fontSize: 7,
+                              fontWeight: 700,
+                              color: stage.color,
+                              display: "flex",
+                              alignItems: "center",
+                              paddingLeft: 3,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                            }}
+                          >
+                            {stage.label}
+                          </div>
+                        );
+                      })}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
         </div>
       </div>
     </div>
@@ -2588,7 +3118,11 @@ function ProjectScreen({
 
       {/* GANTT */}
       {view === "gantt" && (
-        <GanttView projects={filtered} onSelect={setSelected} />
+        <GanttView
+          projects={filtered}
+          onSelect={setSelected}
+          getStageConfig={resolveStageConfig}
+        />
       )}
     </div>
   );
@@ -2671,11 +3205,7 @@ function Analytics({ gm, rt, h2 }) {
     .sort((a, b) => b.count - a.count);
 
   const today = new Date();
-  const parseD = (s) => {
-    if (!s) return null;
-    const p = s.split("-");
-    return p.length === 3 ? new Date(`${p[2]}-${p[1]}-${p[0]}`) : null;
-  };
+  const parseD = parseDateStr;
   const overdue = filtered.filter((p) => {
     const d = parseD(p.contractEnd);
     return d && d < today && p.status !== "done";
