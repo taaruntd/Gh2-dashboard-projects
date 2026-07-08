@@ -568,6 +568,19 @@ const fmtMW = (kw, unit) => {
     : `${n.toLocaleString()} KW`;
 };
 const pctCol = (p) => (p >= 90 ? B.green : p >= 40 ? "#e07b20" : "#c0392b");
+const parseDateStr = (s) => {
+  if (!s || typeof s !== "string") return null;
+  const clean = s.trim();
+  if (!clean || clean.toLowerCase() === "tbd" || clean === "-") return null;
+  const p = clean.split("-");
+  if (p.length !== 3) return null;
+  const d = new Date(`${p[2]}-${p[1]}-${p[0]}`);
+  return isNaN(d.getTime()) ? null : d;
+};
+const fmtShortDate = (d) =>
+  d
+    ? d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })
+    : "—";
 
 // ── TASK EXTRACTOR ────────────────────────────────────────────────────────────
 const META = new Set([
@@ -1448,6 +1461,293 @@ function ProjectPage({ project, onBack, sizeUnit, stageConfig }) {
 }
 
 // ── PROJECT SCREEN ────────────────────────────────────────────────────────────
+// ── GANTT VIEW ─────────────────────────────────────────────────────────────
+function GanttView({ projects, onSelect }) {
+  const [range, setRange] = useState("all"); // all | 90 | 180
+
+  const rows = projects.map((p) => {
+    const modeNorm = (p.mode || "").trim().toLowerCase();
+    const usesPPA = modeNorm === "resco" || modeNorm === "ppa";
+    // EPC/Capex projects don't run on a PPA — only Contract Date matters for them.
+    // RESCO/PPA-mode projects are anchored by PPA signing date.
+    const start = usesPPA ? parseDateStr(p.ppaDate) : null;
+    let end = parseDateStr(p.contractEnd) || parseDateStr(p.expComm);
+    let estimated = false;
+    let effectiveStart = start;
+    if (!effectiveStart && end) {
+      effectiveStart = new Date(end.getTime() - 120 * 86400000);
+      estimated = true;
+    }
+    if (effectiveStart && !end) {
+      end = new Date(effectiveStart.getTime() + 120 * 86400000);
+      estimated = true;
+    }
+    return {
+      p,
+      start: effectiveStart,
+      end,
+      estimated,
+      usesPPA,
+      hasDates: !!(effectiveStart && end),
+    };
+  });
+
+  const dated = rows.filter((r) => r.hasDates);
+  const today = new Date();
+
+  let axisStart, axisEnd;
+  if (dated.length) {
+    axisStart = new Date(
+      Math.min(...dated.map((r) => r.start.getTime()), today.getTime())
+    );
+    axisEnd = new Date(
+      Math.max(...dated.map((r) => r.end.getTime()), today.getTime())
+    );
+    // padding
+    axisStart = new Date(axisStart.getTime() - 15 * 86400000);
+    axisEnd = new Date(axisEnd.getTime() + 15 * 86400000);
+  } else {
+    axisStart = new Date(today.getTime() - 30 * 86400000);
+    axisEnd = new Date(today.getTime() + 150 * 86400000);
+  }
+
+  if (range !== "all") {
+    const days = Number(range);
+    axisStart = new Date(today.getTime() - 15 * 86400000);
+    axisEnd = new Date(today.getTime() + days * 86400000);
+  }
+
+  const totalMs = axisEnd.getTime() - axisStart.getTime();
+  const pctOf = (d) =>
+    Math.min(100, Math.max(0, ((d.getTime() - axisStart.getTime()) / totalMs) * 100));
+
+  // month gridlines
+  const months = [];
+  const cursor = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
+  while (cursor <= axisEnd) {
+    months.push(new Date(cursor));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+
+  const sorted = [...rows].sort((a, b) => {
+    if (a.hasDates && b.hasDates) return a.start - b.start;
+    if (a.hasDates) return -1;
+    if (b.hasDates) return 1;
+    return 0;
+  });
+
+  const todayPct = pctOf(today);
+
+  return (
+    <div
+      style={{
+        background: "#fff",
+        border: `1px solid ${B.border}`,
+        borderRadius: 12,
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          padding: "10px 16px",
+          borderBottom: `1px solid ${B.border}`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div style={{ fontSize: 11, color: B.muted }}>
+          <strong style={{ color: B.text }}>RESCO/PPA</strong> mode bars run
+          PPA Sign Date → Contract End. <strong style={{ color: B.text }}>EPC/Capex</strong>{" "}
+          mode bars use Contract Date only (no PPA). Falls back to Exp.
+          Commissioning if Contract End is blank. Fill shows Execution %.
+          Dashed border = estimated timeline (missing a date).
+        </div>
+        <div style={{ display: "flex", gap: 2, background: B.oliveL, borderRadius: 8, padding: 3 }}>
+          {[["all", "Full"], ["90", "90d"], ["180", "180d"]].map(([v, l]) => (
+            <button
+              key={v}
+              onClick={() => setRange(v)}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 6,
+                border: "none",
+                background: range === v ? "#fff" : "transparent",
+                color: range === v ? B.text : B.muted,
+                fontSize: 10,
+                fontWeight: range === v ? 700 : 400,
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ overflowX: "auto" }}>
+        <div style={{ minWidth: 900 }}>
+          {/* month axis header */}
+          <div
+            style={{
+              display: "flex",
+              position: "relative",
+              height: 26,
+              borderBottom: `1px solid ${B.border}`,
+              marginLeft: 220,
+            }}
+          >
+            {months.map((m, i) => {
+              const left = pctOf(m);
+              return (
+                <div
+                  key={i}
+                  style={{
+                    position: "absolute",
+                    left: `${left}%`,
+                    top: 0,
+                    bottom: 0,
+                    borderLeft: `1px solid ${B.border}`,
+                    paddingLeft: 4,
+                    fontSize: 9,
+                    color: B.muted,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {m.toLocaleDateString("en-IN", { month: "short", year: "2-digit" })}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* rows */}
+          {sorted.map(({ p, start, end, estimated, usesPPA, hasDates }) => {
+            const cfg = STATUS[p.status] || STATUS["on-track"];
+            const left = hasDates ? pctOf(start) : 0;
+            const width = hasDates ? Math.max(1, pctOf(end) - pctOf(start)) : 0;
+            return (
+              <div
+                key={p.id}
+                onClick={() => onSelect(p)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  minHeight: 40,
+                  borderBottom: `1px solid ${B.border}`,
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = B.bg)
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "transparent")
+                }
+              >
+                <div
+                  style={{
+                    width: 220,
+                    flexShrink: 0,
+                    padding: "6px 10px",
+                    borderRight: `1px solid ${B.border}`,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: B.text,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {p.name}
+                  </div>
+                  <div style={{ fontSize: 9, color: B.muted }}>
+                    {p.id} · {p.stage}
+                  </div>
+                </div>
+                <div style={{ flex: 1, position: "relative", height: 40 }}>
+                  {/* today marker */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: `${todayPct}%`,
+                      top: 0,
+                      bottom: 0,
+                      width: 1,
+                      background: B.blue,
+                      opacity: 0.5,
+                    }}
+                  />
+                  {hasDates ? (
+                    <div
+                      title={`${usesPPA ? "PPA Signed" : "Est. start"} ${fmtShortDate(start)} → Contract ${fmtShortDate(end)} · ${p.mode || "—"} · ${p.execPct || 0}% complete`}
+                      style={{
+                        position: "absolute",
+                        left: `${left}%`,
+                        width: `${width}%`,
+                        top: 9,
+                        height: 22,
+                        borderRadius: 6,
+                        background: cfg.bg,
+                        border: `1.5px ${estimated ? "dashed" : "solid"} ${cfg.border}`,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${Math.min(100, p.execPct || 0)}%`,
+                          background: cfg.dot,
+                          opacity: 0.85,
+                        }}
+                      />
+                      <div
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 9,
+                          fontWeight: 700,
+                          color: (p.execPct || 0) > 45 ? "#fff" : cfg.text,
+                        }}
+                      >
+                        {p.execPct || 0}%
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        position: "absolute",
+                        left: 8,
+                        top: 9,
+                        height: 22,
+                        display: "flex",
+                        alignItems: "center",
+                        fontSize: 9,
+                        color: B.muted,
+                        fontStyle: "italic",
+                      }}
+                    >
+                      No {usesPPA ? "PPA/Contract" : "Contract"} date on
+                      file — {p.stage}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function ProjectScreen({
   projects,
   tabColor,
@@ -1810,6 +2110,7 @@ function ProjectScreen({
             {[
               ["kanban", "⊞"],
               ["list", "☰"],
+              ["gantt", "▤"],
             ].map(([v, ic]) => (
               <button
                 key={v}
@@ -2283,6 +2584,11 @@ function ProjectScreen({
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* GANTT */}
+      {view === "gantt" && (
+        <GanttView projects={filtered} onSelect={setSelected} />
       )}
     </div>
   );
