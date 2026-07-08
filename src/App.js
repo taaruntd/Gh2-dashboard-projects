@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   BarChart,
   Bar,
@@ -647,6 +647,50 @@ function computeStageRanges(project, stageConfig) {
       return { stage, start, end };
     })
     .filter((r) => r.start || r.end);
+}
+
+// Same idea as computeStageRanges but one level deeper — per named group
+// within a stage (e.g. "Site Studies & Reports" inside Design & Engineering).
+function computeGroupRanges(project, stageConfig) {
+  const td = project.tasks || {};
+  const dateRangeFor = (taskNames) => {
+    let starts = [];
+    let ends = [];
+    let anyData = false;
+    taskNames.forEach((tn) => {
+      const t = td[tn];
+      if (!t) return;
+      if (t.type === "proc") {
+        const s = parseDateStr(t.po);
+        const e = parseDateStr(t.mat);
+        if (s || e) anyData = true;
+        if (s) starts.push(s);
+        if (e) ends.push(e);
+      } else {
+        const s = parseDateStr(t.start);
+        const e = parseDateStr(t.end);
+        if (s || e) anyData = true;
+        if (s) starts.push(s);
+        if (e) ends.push(e);
+      }
+    });
+    if (!anyData) return null;
+    const start = starts.length
+      ? new Date(Math.min(...starts.map((d) => d.getTime())))
+      : null;
+    const end = ends.length
+      ? new Date(Math.max(...ends.map((d) => d.getTime())))
+      : null;
+    return start || end ? { start, end } : null;
+  };
+  const out = [];
+  stageConfig.forEach((stage) => {
+    stage.groups.forEach((group) => {
+      const r = dateRangeFor(group.tasks);
+      if (r) out.push({ stage, group, start: r.start, end: r.end });
+    });
+  });
+  return out;
 }
 
 // Anchor date for T-minus (reverse) planning = Handover stage's end date,
@@ -1558,6 +1602,8 @@ function ProjectPage({ project, onBack, sizeUnit, stageConfig }) {
 function StageTimelineGantt({ project, stageConfig }) {
   const [reverse, setReverse] = useState(false);
   const [granularity, setGranularity] = useState("month"); // month | week
+  const [showGroups, setShowGroups] = useState(false);
+  const [showLabels, setShowLabels] = useState(true);
   const ranges = computeStageRanges(project, stageConfig);
 
   if (!ranges.length) {
@@ -1581,8 +1627,9 @@ function StageTimelineGantt({ project, stageConfig }) {
 
   const anchor = getProjectAnchor(project, ranges);
   const today = new Date();
+  const groupRanges = showGroups ? computeGroupRanges(project, stageConfig) : [];
 
-  const withFallback = ranges.map((r) => {
+  const withFB = (r) => {
     let { start, end } = r;
     let estimated = false;
     if (!start && end) {
@@ -1594,7 +1641,10 @@ function StageTimelineGantt({ project, stageConfig }) {
       estimated = true;
     }
     return { ...r, start, end, estimated };
-  });
+  };
+
+  const withFallback = ranges.map(withFB);
+  const groupsWithFallback = groupRanges.map(withFB);
 
   const allStarts = withFallback.map((r) => r.start.getTime());
   const allEnds = withFallback.map((r) => r.end.getTime());
@@ -1637,6 +1687,112 @@ function StageTimelineGantt({ project, stageConfig }) {
   const tMinus = (d) =>
     anchor ? Math.round((anchor.getTime() - d.getTime()) / 86400000) : null;
 
+  // One row, reused for both stage-level and group-level bars. Label is
+  // horizontally centered on the bar's midpoint but clamped in px so it can
+  // never run off either edge of the track, regardless of how narrow or how
+  // close to the edge the bar itself is — this is what actually fixes the
+  // overlap, rather than the old left/right threshold guess.
+  const TimelineRow = ({ label, color, light, start, end, estimated, indent, sub }) => {
+    const left = pctOf(start);
+    const width = Math.max(2, pctOf(end) - pctOf(start));
+    const mid = left + width / 2;
+    const labelText =
+      reverse && anchor
+        ? `T-${tMinus(start)}d → T-${tMinus(end)}d`
+        : `${fmtShortDate(start)} → ${fmtShortDate(end)}`;
+    const fullTitle = `${label}: ${labelText}${estimated ? " (estimated)" : ""}`;
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          minHeight: sub ? 34 : 48,
+          opacity: sub ? 0.9 : 1,
+        }}
+      >
+        <div
+          style={{
+            width: 210 - indent,
+            marginLeft: indent,
+            flexShrink: 0,
+            fontSize: sub ? 11 : 13,
+            fontWeight: sub ? 600 : 700,
+            color: color,
+            paddingRight: 12,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+          title={label}
+        >
+          {sub && "↳ "}
+          {label}
+        </div>
+        <div style={{ flex: 1, position: "relative", height: sub ? 26 : 36 }}>
+          {!reverse && (
+            <div
+              style={{
+                position: "absolute",
+                left: `${todayPct}%`,
+                top: -6,
+                bottom: -6,
+                width: 1,
+                background: B.blue,
+                opacity: 0.4,
+              }}
+            />
+          )}
+          <div
+            title={fullTitle}
+            style={{
+              position: "absolute",
+              left: `${left}%`,
+              width: `${width}%`,
+              top: sub ? 5 : 6,
+              height: sub ? 16 : 24,
+              borderRadius: 6,
+              background: light,
+              border: `${sub ? 1.5 : 2}px ${estimated ? "dashed" : "solid"} ${color}`,
+            }}
+          />
+          {showLabels && (
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                height: sub ? 26 : 36,
+                left: `clamp(88px, ${mid}%, calc(100% - 88px))`,
+                transform: "translateX(-50%)",
+                display: "flex",
+                alignItems: "center",
+                fontSize: sub ? 10 : 13,
+                fontWeight: sub ? 600 : 700,
+                color: color,
+                whiteSpace: "nowrap",
+                pointerEvents: "none",
+              }}
+            >
+              {labelText}
+              {estimated && (
+                <span
+                  style={{
+                    marginLeft: 6,
+                    fontSize: 9,
+                    fontWeight: 600,
+                    color: B.muted,
+                    fontStyle: "italic",
+                  }}
+                >
+                  (est.)
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div
       style={{
@@ -1663,7 +1819,40 @@ function StageTimelineGantt({ project, stageConfig }) {
           from task-level dates. Overlapping bars mean stages genuinely ran
           concurrently.
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            onClick={() => setShowGroups((v) => !v)}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 6,
+              border: `1px solid ${showGroups ? B.olive : B.border}`,
+              background: showGroups ? B.oliveL : "#fff",
+              color: showGroups ? B.text : B.muted,
+              fontSize: 10,
+              fontWeight: showGroups ? 700 : 400,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            {showGroups ? "▾ Hide sub-stages" : "▸ Show sub-stages"}
+          </button>
+          <button
+            onClick={() => setShowLabels((v) => !v)}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 6,
+              border: `1px solid ${showLabels ? B.olive : B.border}`,
+              background: showLabels ? B.oliveL : "#fff",
+              color: showLabels ? B.text : B.muted,
+              fontSize: 10,
+              fontWeight: showLabels ? 700 : 400,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+            title="When off, hover any bar to see its dates instead"
+          >
+            {showLabels ? "Hide dates" : "Show dates"}
+          </button>
           {!reverse && (
             <div style={{ display: "flex", gap: 2, background: B.oliveL, borderRadius: 8, padding: 3 }}>
               {[["month", "Month"], ["week", "Week"]].map(([v, l]) => (
@@ -1749,95 +1938,36 @@ function StageTimelineGantt({ project, stageConfig }) {
           </div>
         )}
 
-        {withFallback.map(({ stage, start, end, estimated }) => {
-          const left = pctOf(start);
-          const width = Math.max(2, pctOf(end) - pctOf(start));
-          const labelText =
-            reverse && anchor
-              ? `T-${tMinus(start)}d → T-${tMinus(end)}d`
-              : `${fmtShortDate(start)} → ${fmtShortDate(end)}`;
-          // Anchor the label to whichever side leaves more room, so it
-          // never runs off the edge of the chart.
-          const labelOnRight = left + width < 78;
-          return (
-            <div
-              key={stage.id}
-              style={{ display: "flex", alignItems: "center", minHeight: 48 }}
-            >
-              <div
-                style={{
-                  width: 210,
-                  flexShrink: 0,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: stage.color,
-                  paddingRight: 12,
-                }}
-              >
-                {stage.label}
-              </div>
-              <div style={{ flex: 1, position: "relative", height: 36 }}>
-                {!reverse && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      left: `${todayPct}%`,
-                      top: -6,
-                      bottom: -6,
-                      width: 1,
-                      background: B.blue,
-                      opacity: 0.4,
-                    }}
+        {withFallback.map((r) => (
+          <div key={r.stage.id}>
+            <TimelineRow
+              label={r.stage.label}
+              color={r.stage.color}
+              light={r.stage.light}
+              start={r.start}
+              end={r.end}
+              estimated={r.estimated}
+              indent={0}
+              sub={false}
+            />
+            {showGroups &&
+              groupsWithFallback
+                .filter((g) => g.stage.id === r.stage.id)
+                .map((g) => (
+                  <TimelineRow
+                    key={`${g.stage.id}-${g.group.label}`}
+                    label={g.group.label}
+                    color={g.stage.color}
+                    light={g.stage.light}
+                    start={g.start}
+                    end={g.end}
+                    estimated={g.estimated}
+                    indent={20}
+                    sub={true}
                   />
-                )}
-                <div
-                  title={labelText}
-                  style={{
-                    position: "absolute",
-                    left: `${left}%`,
-                    width: `${width}%`,
-                    top: 6,
-                    height: 24,
-                    borderRadius: 6,
-                    background: stage.light,
-                    border: `2px ${estimated ? "dashed" : "solid"} ${stage.color}`,
-                  }}
-                />
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    height: 36,
-                    display: "flex",
-                    alignItems: "center",
-                    ...(labelOnRight
-                      ? { left: `calc(${left + width}% + 10px)` }
-                      : { right: `calc(${100 - left}% + 10px)` }),
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: stage.color,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {labelText}
-                  {estimated && (
-                    <span
-                      style={{
-                        marginLeft: 6,
-                        fontSize: 10,
-                        fontWeight: 600,
-                        color: B.muted,
-                        fontStyle: "italic",
-                      }}
-                    >
-                      (est.)
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })}
+                ))}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -4245,42 +4375,52 @@ export default function App() {
   const [rt, setRt] = useState([]);
   const [h2, setH2] = useState([]);
   const [error, setError] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback((isManual) => {
+    if (isManual) setRefreshing(true);
+    // raw.githubusercontent.com caches responses server-side for a few
+    // minutes regardless of request cache headers — a cache-busting query
+    // param is the only reliable way to force a genuinely fresh fetch on
+    // manual refresh.
+    const url = isManual ? `${DATA_URL}?t=${Date.now()}` : DATA_URL;
+    fetch(url, { cache: "no-cache" })
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        const master = data.projectMaster || [];
+        setGm(
+          joinMaster(
+            (data.groundMount || []).filter((r) => r["PROJECT ID"]),
+            master
+          ).map(mapRow)
+        );
+        setRt(
+          joinMaster(
+            (data.rooftop || []).filter((r) => r["PROJECT ID"]),
+            master
+          ).map(mapRow)
+        );
+        setH2((data.h2 || []).filter((r) => r["PROJECT ID"]).map(mapRow));
+        setLastUpdated(data.lastUpdated);
+        setLoading(false);
+        setRefreshing(false);
+        setError(null);
+      })
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+        setRefreshing(false);
+      });
+  }, []);
 
   useEffect(() => {
-    const load = () => {
-      fetch(DATA_URL, { cache: "no-cache" })
-        .then((r) => {
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return r.json();
-        })
-        .then((data) => {
-          const master = data.projectMaster || [];
-          setGm(
-            joinMaster(
-              (data.groundMount || []).filter((r) => r["PROJECT ID"]),
-              master
-            ).map(mapRow)
-          );
-          setRt(
-            joinMaster(
-              (data.rooftop || []).filter((r) => r["PROJECT ID"]),
-              master
-            ).map(mapRow)
-          );
-          setH2((data.h2 || []).filter((r) => r["PROJECT ID"]).map(mapRow));
-          setLastUpdated(data.lastUpdated);
-          setLoading(false);
-          setError(null);
-        })
-        .catch((err) => {
-          setError(err.message);
-          setLoading(false);
-        });
-    };
-    load();
-    const t = setInterval(load, 5 * 60 * 1000);
+    load(false);
+    const t = setInterval(() => load(false), 5 * 60 * 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [load]);
 
   const NAV = [
     {
@@ -4417,6 +4557,34 @@ export default function App() {
               })}
             </span>
           )}
+          <button
+            onClick={() => load(true)}
+            disabled={refreshing}
+            title="Force a fresh pull from GitHub, bypassing any cache"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              fontSize: 11,
+              color: refreshing ? B.olive : B.muted,
+              background: B.bg,
+              border: `1px solid ${B.border}`,
+              borderRadius: 20,
+              padding: "4px 12px",
+              cursor: refreshing ? "default" : "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                animation: refreshing ? "spin 0.8s linear infinite" : "none",
+              }}
+            >
+              ↺
+            </span>
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
           {error && (
             <span
               style={{
@@ -4432,6 +4600,7 @@ export default function App() {
           )}
         </div>
       </div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
       {loading ? (
         <Loading />
