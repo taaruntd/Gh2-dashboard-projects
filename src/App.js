@@ -101,6 +101,9 @@ const STAGE_WEIGHTS = {
 };
 
 // ── GM STAGE CONFIG ───────────────────────────────────────────────────────────
+// Rebuilt 2026-07-08 to match the live Ground_Mount headers exactly (pulled
+// from projects_clean.json). If task columns change again, re-pull the JSON
+// and diff the "groundMount" row's keys against this list rather than guessing.
 const GM_STAGES = [
   {
     id: "design",
@@ -114,23 +117,18 @@ const GM_STAGES = [
           "Topographical Survey (Contour Layout)",
           "Geotechnical Investigation Report & ERT",
           "Pile Test Report",
-          "Concrete Mix Design Report",
-          "Staad Report - MMS",
-          "PV Module GTP",
-          "String Inverter GTP",
-          "PVSyst Reports",
-          "Shadow Analysis Reports",
+          "Concrete Mix Design & Staad Report (MMS)",
+          "PV Module & String Inverter GTP",
+          "PVSyst & Shadow Analysis Reports",
           "Design Calculations",
         ],
       },
       {
         label: "Electrical SLDs & Layouts",
         tasks: [
-          "DC & AC SLD Layout",
-          "Plant Auxiliary SLD",
+          "DC & AC SLD Layout (Plant + Auxiliary)",
           "Overall Plant Layout with Equipment Arrangements",
-          "DC Cable Routing Layout & String Configuration Layout",
-          "AC Cable Routing Layout with Cable Trench Sectional Details",
+          "DC & AC Cable Routing Layout (incl_x002e_ Trench Sectional Details)",
           "IDT Yard Equipment Arrangement Drawing",
           "Equipment Layout",
         ],
@@ -139,33 +137,24 @@ const GM_STAGES = [
         label: "Structural & Foundation Drawings",
         tasks: [
           "Pile Marking Layout",
-          "Inverter Mounting Foundation Drawing and Calculation",
+          "Inverter Mounting Foundation Drawing & Calculation",
           "MMS GA, Foundations Drawings and Calculation",
           "LT Panel Foundation Drawing and Arrangement Details",
           "HT Platform Foundation Drawing and Arrangement Details",
-          "Civil Foundation for Inverter Duty Transformer",
-          "Civil Foundation Auxiliary Transformer",
-          "Civil Foundation Street Lights",
+          "Civil Foundation - IDT / Aux Transformer / Street Lights",
+          "Plant Main Gate & Porta/Security Cabin Foundation Drawing",
         ],
       },
       {
         label: "Protection & Earthing",
-        tasks: [
-          "Lightning Protection Layout & Foundation Drawing",
-          "Earthing Layout Drawing",
-        ],
+        tasks: ["Lightning Protection & Earthing Layout Drawing"],
       },
       {
         label: "Civil & Site Infrastructure",
         tasks: [
-          "MCR Arch_x002e_ Plan Layout",
-          "MCR Equipment Layout",
-          "Plant Main Gate Drawing",
-          "Porta & Security Cabin Foundation Drawing",
-          "Road Layout and Sections Details and Calculation",
-          "Chain Link Fencing Drawing and Layout for IDT Yard",
-          "Boundary Fencing Drawing",
-          "Plant Road Layout with Sectional Details",
+          "MCR Arch_x002e_ Plan & Equipment Layout",
+          "Road & Plant Road Layout with Sectional Details",
+          "Fencing (Chain Link IDT Yard + Boundary)",
           "Plant Drain Layout with Sectional Details",
         ],
       },
@@ -174,7 +163,6 @@ const GM_STAGES = [
         tasks: [
           "CCTV Camera Layout and General Arrangement",
           "PV Module Cleaning System Schematic and Layout & Calculation",
-          "FAS Layout",
         ],
       },
       { label: "GFC Approval", tasks: ["Designing with Approval (GFC)"] },
@@ -192,13 +180,11 @@ const GM_STAGES = [
           "Modules",
           "Inverter",
           "Module Mounting Structure (MMS) - Column and Super Structure",
-          "MC4 Connectors",
-          "Misc_x002e_ (Lugs, Glands, Ferrules, Ties, Safety Net)",
+          "MC4 Connector & Misc_x002e_ (Lugs, Glands, Ferrules, Ties, Safety Net, Conduit)",
           "DC Cable",
           "AC Cable",
           "Communication Cable and Optical Fiber Cable",
           "Cable Tray",
-          "Conduit",
           "LT Panel",
           "HT Cable",
           "HT Termination Kit",
@@ -207,13 +193,11 @@ const GM_STAGES = [
           "Auxiliary LT Panel",
           "HT Switchgear Panel (ICOG Panel)",
           "Earthing Material",
-          "Lightning Protection System",
           "WMS (Pyranometer, Sensors etc_x002e_)",
           "Data Logger",
           "Module Cleaning System",
           "CCTV Camera",
           "Street Lights",
-          "UPS and Battery",
         ],
       },
     ],
@@ -226,38 +210,28 @@ const GM_STAGES = [
     groups: [
       {
         label: "Preliminary",
-        tasks: [
-          "All GFC Drawings",
-          "Mobilization of I&C Contractor",
-          "Safety Induction",
-        ],
+        tasks: ["All GFC Drawings", "Mobilization of I&C Contractor"],
       },
       {
         label: "I&C Works",
         tasks: [
           "Land Levelling",
           "Boundary Wall",
-          "MMS Marking",
           "MMS Piling and Casting",
-          "MMS Capping",
           "MMS Installation",
           "Module Installation",
           "Inverter Installation",
-          "DC Cable Laying",
           "AC Cable Laying",
-          "HT Cable Laying",
-          "Communication Cable Laying",
+          "DC Cable Laying",
           "LT Panel Foundation",
           "HT Panel Foundation",
           "IDT Foundation",
           "IDT Installation",
-          "LT Panel Installation",
           "HT Panel Installation",
-          "LA Installation",
-          "Earthing Work",
+          "LT Panel Installation",
+          "LA Installation & Earthing Work",
           "Cable Termination",
-          "Testing",
-          "UPS and Battery Installation",
+          "Testing of Complete electrical Installation at AC site",
         ],
       },
       {
@@ -267,7 +241,6 @@ const GM_STAGES = [
           "Weather Station & Data Logger Installation",
           "Street Light Installation",
           "CCTV Camera Installation",
-          "SCADA Configuration",
         ],
       },
     ],
@@ -281,8 +254,8 @@ const GM_STAGES = [
       {
         label: "Transmission Works",
         tasks: [
-          "33KV Terminal Bay Construction at KPTCL MUSS Khanapur Sub Station",
-          "33KV Single Circuit Overhead Line - 2_x002e_0 KM (DOG AL 59 Conductor)",
+          "33KV Terminal Bay Construction",
+          "33KV/11KV Single Circuit Overhead Line",
           "Liaisoning Work - 10 MW Solar Power Plant",
         ],
       },
@@ -298,7 +271,6 @@ const GM_STAGES = [
         label: "Commissioning Tasks",
         tasks: [
           "Commissioning (Inverter Charging)",
-          "MCS",
           "CEIG / Statutory Approvals",
           "Net Metering",
           "SCADA Integration",
@@ -314,7 +286,7 @@ const GM_STAGES = [
     groups: [
       {
         label: "Handover Tasks",
-        tasks: ["O&M Handover", "Documentation & Reports", "Final Signoff"],
+        tasks: ["Documentation & Reports", "Final Signoff", "O&M Handover"],
       },
     ],
   },
@@ -614,6 +586,14 @@ const fmtShortDate = (d) =>
   d
     ? d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })
     : "—";
+// For fields that are USUALLY a date but sometimes hold status text (e.g. PO
+// field can be "25/7/2026" or literally "Done") — reformat only if it's
+// actually parseable as a date, otherwise show the original text untouched.
+const dispDate = (v) => {
+  if (v === null || v === undefined || v === "") return v;
+  const d = parseDateStr(v);
+  return d ? fmtShortDate(d) : v;
+};
 
 // Derive a stage's actual date window from its task-level dates.
 // Procurement tasks don't have start/end — they use PO Date → Material
@@ -1105,16 +1085,16 @@ function StageBreakdown({ project, stageConfig }) {
                                     >
                                       {isProc ? (
                                         <span style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                          {t.boq && <span>BOQ: <b>{t.boq}</b></span>}
-                                          {t.po && <span>PO: <b style={{ color: t.po === "Done" ? B.green : "inherit" }}>{t.po}</b></span>}
-                                          {t.mat && <span>Mat: <b style={{ color: "#c62828" }}>{t.mat}</b></span>}
+                                          {t.boq && <span>BOQ: <b>{dispDate(t.boq)}</b></span>}
+                                          {t.po && <span>PO: <b style={{ color: t.po === "Done" ? B.green : "inherit" }}>{dispDate(t.po)}</b></span>}
+                                          {t.mat && <span>Mat: <b style={{ color: "#c62828" }}>{dispDate(t.mat)}</b></span>}
                                         </span>
                                       ) : (
                                         (t.start || t.end) && (
                                           <span>
-                                            {t.start && `Start ${t.start}`}
+                                            {t.start && `Start ${dispDate(t.start)}`}
                                             {t.start && t.end && " → "}
-                                            {t.end && `End ${t.end}`}
+                                            {t.end && `End ${dispDate(t.end)}`}
                                           </span>
                                         )
                                       )}
@@ -1382,9 +1362,9 @@ function ProjectPage({ project, onBack, sizeUnit, stageConfig }) {
             },
             { l: "Mode", v: project.mode || "—" },
             { l: "I&C Partner", v: project.icPartner || "—" },
-            { l: "Contract End", v: project.contractEnd || "—" },
-            { l: "Exp. Commissioning", v: project.expComm || "—" },
-            { l: "PPA Date", v: project.ppaDate || "—" },
+            { l: "Contract End", v: dispDate(project.contractEnd) || "—" },
+            { l: "Exp. Commissioning", v: dispDate(project.expComm) || "—" },
+            { l: "PPA Date", v: dispDate(project.ppaDate) || "—" },
           ].map((f, i) => (
             <div
               key={i}
@@ -1563,6 +1543,7 @@ function ProjectPage({ project, onBack, sizeUnit, stageConfig }) {
 // ── STAGE TIMELINE GANTT (single project) ──────────────────────────────────
 function StageTimelineGantt({ project, stageConfig }) {
   const [reverse, setReverse] = useState(false);
+  const [granularity, setGranularity] = useState("month"); // month | week
   const ranges = computeStageRanges(project, stageConfig);
 
   if (!ranges.length) {
@@ -1609,12 +1590,34 @@ function StageTimelineGantt({ project, stageConfig }) {
   const pctOf = (d) =>
     Math.min(100, Math.max(0, ((d.getTime() - axisStart.getTime()) / totalMs) * 100));
 
-  const months = [];
-  const cursor = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
-  while (cursor <= axisEnd) {
-    months.push(new Date(cursor));
-    cursor.setMonth(cursor.getMonth() + 1);
+  // Build tick marks, then drop any that would visually collide with the
+  // previous tick (fixes month/week labels overlapping on short ranges).
+  const rawTicks = [];
+  if (granularity === "week") {
+    const cursor = new Date(axisStart);
+    cursor.setHours(0, 0, 0, 0);
+    while (cursor <= axisEnd) {
+      rawTicks.push(new Date(cursor));
+      cursor.setDate(cursor.getDate() + 7);
+    }
+  } else {
+    const cursor = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
+    while (cursor <= axisEnd) {
+      rawTicks.push(new Date(cursor));
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
   }
+  const MIN_GAP_PCT = granularity === "week" ? 6 : 9;
+  const ticks = [];
+  let lastPct = -Infinity;
+  rawTicks.forEach((t) => {
+    const p = pctOf(t);
+    if (p - lastPct >= MIN_GAP_PCT) {
+      ticks.push(t);
+      lastPct = p;
+    }
+  });
+
   const todayPct = pctOf(today);
 
   const tMinus = (d) =>
@@ -1637,6 +1640,8 @@ function StageTimelineGantt({ project, stageConfig }) {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 8,
         }}
       >
         <div style={{ fontSize: 11, color: B.muted }}>
@@ -1644,30 +1649,55 @@ function StageTimelineGantt({ project, stageConfig }) {
           from task-level dates. Overlapping bars mean stages genuinely ran
           concurrently.
         </div>
-        <div style={{ display: "flex", gap: 2, background: B.oliveL, borderRadius: 8, padding: 3 }}>
-          {[
-            [false, "Calendar"],
-            [true, "T-minus (Handover)"],
-          ].map(([v, l]) => (
-            <button
-              key={l}
-              onClick={() => setReverse(v)}
-              disabled={v && !anchor}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 6,
-                border: "none",
-                background: reverse === v ? "#fff" : "transparent",
-                color: v && !anchor ? "#ccc" : reverse === v ? B.text : B.muted,
-                fontSize: 10,
-                fontWeight: reverse === v ? 700 : 400,
-                cursor: v && !anchor ? "not-allowed" : "pointer",
-                fontFamily: "inherit",
-              }}
-            >
-              {l}
-            </button>
-          ))}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {!reverse && (
+            <div style={{ display: "flex", gap: 2, background: B.oliveL, borderRadius: 8, padding: 3 }}>
+              {[["month", "Month"], ["week", "Week"]].map(([v, l]) => (
+                <button
+                  key={v}
+                  onClick={() => setGranularity(v)}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 6,
+                    border: "none",
+                    background: granularity === v ? "#fff" : "transparent",
+                    color: granularity === v ? B.text : B.muted,
+                    fontSize: 10,
+                    fontWeight: granularity === v ? 700 : 400,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 2, background: B.oliveL, borderRadius: 8, padding: 3 }}>
+            {[
+              [false, "Calendar"],
+              [true, "T-minus (Handover)"],
+            ].map(([v, l]) => (
+              <button
+                key={l}
+                onClick={() => setReverse(v)}
+                disabled={v && !anchor}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: reverse === v ? "#fff" : "transparent",
+                  color: v && !anchor ? "#ccc" : reverse === v ? B.text : B.muted,
+                  fontSize: 10,
+                  fontWeight: reverse === v ? 700 : 400,
+                  cursor: v && !anchor ? "not-allowed" : "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1683,7 +1713,7 @@ function StageTimelineGantt({ project, stageConfig }) {
               marginBottom: 8,
             }}
           >
-            {months.map((m, i) => (
+            {ticks.map((m, i) => (
               <div
                 key={i}
                 style={{
@@ -1697,7 +1727,9 @@ function StageTimelineGantt({ project, stageConfig }) {
                   whiteSpace: "nowrap",
                 }}
               >
-                {m.toLocaleDateString("en-IN", { month: "short", year: "2-digit" })}
+                {granularity === "week"
+                  ? m.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })
+                  : m.toLocaleDateString("en-IN", { month: "short", year: "2-digit" })}
               </div>
             ))}
           </div>
@@ -1887,11 +1919,20 @@ function GanttView({ projects, onSelect, getStageConfig }) {
 
   const months = [];
   if (!reverse) {
+    const rawMonths = [];
     const cursor = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
     while (cursor <= axisEnd) {
-      months.push(new Date(cursor));
+      rawMonths.push(new Date(cursor));
       cursor.setMonth(cursor.getMonth() + 1);
     }
+    let lastPct = -Infinity;
+    rawMonths.forEach((m) => {
+      const p = pctOf(m);
+      if (p - lastPct >= 9) {
+        months.push(m);
+        lastPct = p;
+      }
+    });
   }
   const todayPct = reverse ? null : pctOf(today);
 
@@ -2889,7 +2930,7 @@ function ProjectScreen({
                         <div
                           style={{ marginTop: 4, fontSize: 10, color: B.muted }}
                         >
-                          Due: {p.contractEnd}
+                          Due: {dispDate(p.contractEnd)}
                         </div>
                       )}
                       {p.pendency && p.pendency !== "None" && (
@@ -3126,7 +3167,7 @@ function ProjectScreen({
                         color: B.muted,
                       }}
                     >
-                      {p.contractEnd || "—"}
+                      {dispDate(p.contractEnd) || "—"}
                     </td>
                     <td
                       style={{
@@ -4038,7 +4079,7 @@ function Analytics({ gm, rt, h2 }) {
                           {p.name}
                         </div>
                         <div style={{ fontSize: 11, color: B.muted }}>
-                          {p.contractEnd} · {p.pm}
+                          {dispDate(p.contractEnd)} · {p.pm}
                         </div>
                       </div>
                       <span
@@ -4121,7 +4162,7 @@ function Analytics({ gm, rt, h2 }) {
                           {p.name}
                         </div>
                         <div style={{ fontSize: 11, color: B.muted }}>
-                          {p.contractEnd} · {p.pm}
+                          {dispDate(p.contractEnd)} · {p.pm}
                         </div>
                       </div>
                       <span
