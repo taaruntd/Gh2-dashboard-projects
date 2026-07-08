@@ -761,6 +761,20 @@ function mapRow(row) {
   };
 }
 
+// Ground_Mount/Rooftop rows only carry PROJECT ID, PROJECT NAME, PROJECT
+// TYPE, STAGE, STATUS, REMARKS, EXECUTION PCT (+ task columns) now.
+// Capacity, Site Engineer, PM, Mode, PPA/Contract/Comm dates, and Revenue
+// live in Project_Master — join them in by PROJECT ID before mapRow() runs,
+// or those fields silently come through as 0/blank.
+function joinMaster(rows, master) {
+  const byId = {};
+  (master || []).forEach((m) => {
+    const id = m["PROJECT ID"];
+    if (id) byId[id] = m;
+  });
+  return rows.map((r) => ({ ...(byId[r["PROJECT ID"]] || {}), ...r }));
+}
+
 // ── EPC-STYLE PRIMITIVES (shared look for the project page) ───────────────────
 const Badge = ({ text, bg, border, color }) => {
   if (!text) return <span style={{ color: B.muted, fontSize: 10 }}>—</span>;
@@ -1258,7 +1272,7 @@ function ProjectPage({ project, onBack, sizeUnit, stageConfig }) {
 
       <div
         style={{
-          maxWidth: 900,
+          maxWidth: 1240,
           margin: "0 auto",
           padding: "20px 24px 60px",
         }}
@@ -1657,16 +1671,16 @@ function StageTimelineGantt({ project, stageConfig }) {
         </div>
       </div>
 
-      <div style={{ padding: "12px 16px" }}>
+      <div style={{ padding: "16px 20px 20px" }}>
         {!reverse && (
           <div
             style={{
               display: "flex",
               position: "relative",
-              height: 20,
+              height: 24,
               borderBottom: `1px solid ${B.border}`,
-              marginLeft: 170,
-              marginBottom: 4,
+              marginLeft: 210,
+              marginBottom: 8,
             }}
           >
             {months.map((m, i) => (
@@ -1676,8 +1690,9 @@ function StageTimelineGantt({ project, stageConfig }) {
                   position: "absolute",
                   left: `${pctOf(m)}%`,
                   borderLeft: `1px solid ${B.border}`,
-                  paddingLeft: 4,
-                  fontSize: 9,
+                  paddingLeft: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
                   color: B.muted,
                   whiteSpace: "nowrap",
                 }}
@@ -1690,32 +1705,39 @@ function StageTimelineGantt({ project, stageConfig }) {
 
         {withFallback.map(({ stage, start, end, estimated }) => {
           const left = pctOf(start);
-          const width = Math.max(1.2, pctOf(end) - pctOf(start));
+          const width = Math.max(2, pctOf(end) - pctOf(start));
+          const labelText =
+            reverse && anchor
+              ? `T-${tMinus(start)}d → T-${tMinus(end)}d`
+              : `${fmtShortDate(start)} → ${fmtShortDate(end)}`;
+          // Anchor the label to whichever side leaves more room, so it
+          // never runs off the edge of the chart.
+          const labelOnRight = left + width < 78;
           return (
             <div
               key={stage.id}
-              style={{ display: "flex", alignItems: "center", minHeight: 34 }}
+              style={{ display: "flex", alignItems: "center", minHeight: 48 }}
             >
               <div
                 style={{
-                  width: 170,
+                  width: 210,
                   flexShrink: 0,
-                  fontSize: 10,
-                  fontWeight: 600,
+                  fontSize: 13,
+                  fontWeight: 700,
                   color: stage.color,
-                  paddingRight: 8,
+                  paddingRight: 12,
                 }}
               >
                 {stage.label}
               </div>
-              <div style={{ flex: 1, position: "relative", height: 26 }}>
+              <div style={{ flex: 1, position: "relative", height: 36 }}>
                 {!reverse && (
                   <div
                     style={{
                       position: "absolute",
                       left: `${todayPct}%`,
-                      top: -4,
-                      bottom: -4,
+                      top: -6,
+                      bottom: -6,
                       width: 1,
                       background: B.blue,
                       opacity: 0.4,
@@ -1723,40 +1745,48 @@ function StageTimelineGantt({ project, stageConfig }) {
                   />
                 )}
                 <div
-                  title={
-                    reverse && anchor
-                      ? `T-${tMinus(start)}d → T-${tMinus(end)}d before Handover`
-                      : `${fmtShortDate(start)} → ${fmtShortDate(end)}`
-                  }
+                  title={labelText}
                   style={{
                     position: "absolute",
                     left: `${left}%`,
                     width: `${width}%`,
-                    top: 3,
-                    height: 20,
-                    borderRadius: 5,
+                    top: 6,
+                    height: 24,
+                    borderRadius: 6,
                     background: stage.light,
-                    border: `1.5px ${estimated ? "dashed" : "solid"} ${stage.color}`,
+                    border: `2px ${estimated ? "dashed" : "solid"} ${stage.color}`,
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    height: 36,
+                    display: "flex",
+                    alignItems: "center",
+                    ...(labelOnRight
+                      ? { left: `calc(${left + width}% + 10px)` }
+                      : { right: `calc(${100 - left}% + 10px)` }),
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: stage.color,
+                    whiteSpace: "nowrap",
                   }}
                 >
-                  <div
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 8,
-                      fontWeight: 700,
-                      color: stage.color,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {reverse && anchor
-                      ? `T-${tMinus(start)}d → T-${tMinus(end)}d`
-                      : `${fmtShortDate(start)} → ${fmtShortDate(end)}`}
-                  </div>
+                  {labelText}
+                  {estimated && (
+                    <span
+                      style={{
+                        marginLeft: 6,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: B.muted,
+                        fontStyle: "italic",
+                      }}
+                    >
+                      (est.)
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -4169,11 +4199,18 @@ export default function App() {
           return r.json();
         })
         .then((data) => {
+          const master = data.projectMaster || [];
           setGm(
-            (data.groundMount || []).filter((r) => r["PROJECT ID"]).map(mapRow)
+            joinMaster(
+              (data.groundMount || []).filter((r) => r["PROJECT ID"]),
+              master
+            ).map(mapRow)
           );
           setRt(
-            (data.rooftop || []).filter((r) => r["PROJECT ID"]).map(mapRow)
+            joinMaster(
+              (data.rooftop || []).filter((r) => r["PROJECT ID"]),
+              master
+            ).map(mapRow)
           );
           setH2((data.h2 || []).filter((r) => r["PROJECT ID"]).map(mapRow));
           setLastUpdated(data.lastUpdated);
