@@ -693,6 +693,19 @@ function computeGroupRanges(project, stageConfig) {
   return out;
 }
 
+// % complete for an arbitrary list of task names — average of each task's
+// own %, counting only tasks that actually have data. Shared by the Stage
+// Breakdown table and the Gantt's delay detection so both agree.
+function pctOfTasks(project, taskNames) {
+  const td = project.tasks || {};
+  const valid = taskNames.filter((t) => td[t] !== undefined);
+  if (!valid.length) return 0;
+  return Math.round(
+    valid.reduce((s, t) => s + (td[t]?.pct || 0), 0) / valid.length
+  );
+}
+
+
 // Anchor date for T-minus (reverse) planning = Handover stage's end date,
 // falling back to the latest known stage end, then Contract/Exp. Commissioning.
 function getProjectAnchor(project, stageRanges) {
@@ -1604,6 +1617,7 @@ function StageTimelineGantt({ project, stageConfig }) {
   const [granularity, setGranularity] = useState("month"); // month | week
   const [showGroups, setShowGroups] = useState(false);
   const [showLabels, setShowLabels] = useState(true);
+  const [stageFilter, setStageFilter] = useState(null); // null = all stages
   const ranges = computeStageRanges(project, stageConfig);
 
   if (!ranges.length) {
@@ -1629,7 +1643,7 @@ function StageTimelineGantt({ project, stageConfig }) {
   const today = new Date();
   const groupRanges = showGroups ? computeGroupRanges(project, stageConfig) : [];
 
-  const withFB = (r) => {
+  const withFB = (r, taskNames) => {
     let { start, end } = r;
     let estimated = false;
     if (!start && end) {
@@ -1640,11 +1654,22 @@ function StageTimelineGantt({ project, stageConfig }) {
       end = new Date(start.getTime() + 20 * 86400000);
       estimated = true;
     }
-    return { ...r, start, end, estimated };
+    const pct = taskNames ? pctOfTasks(project, taskNames) : 0;
+    // Delayed = this stage/group's own end date has already passed, but the
+    // work behind it isn't actually finished — a real signal from the data,
+    // not a guess against some target we don't have.
+    const isDelayed = !estimated && end < today && pct < 100;
+    return { ...r, start, end, estimated, pct, isDelayed };
   };
 
-  const withFallback = ranges.map(withFB);
-  const groupsWithFallback = groupRanges.map(withFB);
+  const withFallback = ranges.map((r) =>
+    withFB(r, r.stage.groups.flatMap((g) => g.tasks))
+  );
+  const groupsWithFallback = groupRanges.map((r) => withFB(r, r.group.tasks));
+
+  const visibleStages = stageFilter
+    ? withFallback.filter((r) => stageFilter.has(r.stage.id))
+    : withFallback;
 
   const allStarts = withFallback.map((r) => r.start.getTime());
   const allEnds = withFallback.map((r) => r.end.getTime());
@@ -1692,7 +1717,7 @@ function StageTimelineGantt({ project, stageConfig }) {
   // never run off either edge of the track, regardless of how narrow or how
   // close to the edge the bar itself is — this is what actually fixes the
   // overlap, rather than the old left/right threshold guess.
-  const TimelineRow = ({ label, color, light, start, end, estimated, indent, sub }) => {
+  const TimelineRow = ({ label, color, light, start, end, estimated, indent, sub, pct, isDelayed }) => {
     const left = pctOf(start);
     const width = Math.max(2, pctOf(end) - pctOf(start));
     const mid = left + width / 2;
@@ -1700,7 +1725,12 @@ function StageTimelineGantt({ project, stageConfig }) {
       reverse && anchor
         ? `T-${tMinus(start)}d → T-${tMinus(end)}d`
         : `${fmtShortDate(start)} → ${fmtShortDate(end)}`;
-    const fullTitle = `${label}: ${labelText}${estimated ? " (estimated)" : ""}`;
+    const delayDays = isDelayed ? Math.round((today.getTime() - end.getTime()) / 86400000) : 0;
+    const delayLeft = pctOf(end);
+    const delayWidth = isDelayed && !reverse ? Math.max(1, todayPct - delayLeft) : 0;
+    const fullTitle = `${label}: ${labelText}${estimated ? " (estimated)" : ""}${
+      isDelayed ? ` — ${delayDays}d overdue, ${pct}% done` : ""
+    }`;
     return (
       <div
         style={{
@@ -1717,16 +1747,20 @@ function StageTimelineGantt({ project, stageConfig }) {
             flexShrink: 0,
             fontSize: sub ? 11 : 13,
             fontWeight: sub ? 600 : 700,
-            color: color,
+            color: isDelayed ? "#c0392b" : color,
             paddingRight: 12,
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
           }}
           title={label}
         >
           {sub && "↳ "}
           {label}
+          {isDelayed && <span title={`${delayDays}d overdue`}>⚠</span>}
         </div>
         <div style={{ flex: 1, position: "relative", height: sub ? 26 : 36 }}>
           {!reverse && (
@@ -1750,11 +1784,40 @@ function StageTimelineGantt({ project, stageConfig }) {
               width: `${width}%`,
               top: sub ? 5 : 6,
               height: sub ? 16 : 24,
-              borderRadius: 6,
+              borderRadius: isDelayed ? "6px 0 0 6px" : 6,
               background: light,
               border: `${sub ? 1.5 : 2}px ${estimated ? "dashed" : "solid"} ${color}`,
+              borderRight: isDelayed ? "none" : undefined,
             }}
           />
+          {isDelayed && (
+            <div
+              title={`${delayDays}d overdue — still ${100 - pct}% remaining`}
+              style={{
+                position: "absolute",
+                left: `${delayLeft}%`,
+                width: `${delayWidth}%`,
+                top: sub ? 5 : 6,
+                height: sub ? 16 : 24,
+                borderRadius: "0 6px 6px 0",
+                background:
+                  "repeating-linear-gradient(45deg, #fef2f2, #fef2f2 4px, #fecaca 4px, #fecaca 8px)",
+                border: `${sub ? 1.5 : 2}px solid #c0392b`,
+                borderLeft: "none",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "flex-end",
+                paddingRight: 3,
+                fontSize: sub ? 8 : 9,
+                fontWeight: 700,
+                color: "#c0392b",
+                overflow: "hidden",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {delayWidth > 8 && "→"}
+            </div>
+          )}
           {showLabels && (
             <div
               style={{
@@ -1767,7 +1830,7 @@ function StageTimelineGantt({ project, stageConfig }) {
                 alignItems: "center",
                 fontSize: sub ? 10 : 13,
                 fontWeight: sub ? 600 : 700,
-                color: color,
+                color: isDelayed ? "#c0392b" : color,
                 whiteSpace: "nowrap",
                 pointerEvents: "none",
               }}
@@ -1784,6 +1847,18 @@ function StageTimelineGantt({ project, stageConfig }) {
                   }}
                 >
                   (est.)
+                </span>
+              )}
+              {isDelayed && (
+                <span
+                  style={{
+                    marginLeft: 6,
+                    fontSize: sub ? 9 : 10,
+                    fontWeight: 700,
+                    color: "#c0392b",
+                  }}
+                >
+                  · {delayDays}d overdue
                 </span>
               )}
             </div>
@@ -1817,7 +1892,8 @@ function StageTimelineGantt({ project, stageConfig }) {
         <div style={{ fontSize: 11, color: B.muted }}>
           <strong style={{ color: B.text }}>Stage Timeline</strong> — derived
           from task-level dates. Overlapping bars mean stages genuinely ran
-          concurrently.
+          concurrently. Red hatched extension = stage ran past its own end
+          date and still isn't finished.
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <button
@@ -1904,6 +1980,73 @@ function StageTimelineGantt({ project, stageConfig }) {
         </div>
       </div>
 
+      <div
+        style={{
+          padding: "10px 20px",
+          borderBottom: `1px solid ${B.border}`,
+          display: "flex",
+          gap: 6,
+          alignItems: "center",
+          flexWrap: "wrap",
+          background: B.bg,
+        }}
+      >
+        <span style={{ fontSize: 10, fontWeight: 700, color: B.muted, marginRight: 2 }}>
+          STAGES:
+        </span>
+        {withFallback.map((r) => {
+          const active = !stageFilter || stageFilter.has(r.stage.id);
+          return (
+            <button
+              key={r.stage.id}
+              onClick={() => {
+                setStageFilter((prev) => {
+                  const all = new Set(withFallback.map((x) => x.stage.id));
+                  const cur = prev || all;
+                  const next = new Set(cur);
+                  if (next.has(r.stage.id)) next.delete(r.stage.id);
+                  else next.add(r.stage.id);
+                  // If everything ends up selected, go back to "no filter"
+                  // rather than carrying around a full-set filter forever.
+                  return next.size === all.size ? null : next;
+                });
+              }}
+              style={{
+                padding: "3px 10px",
+                borderRadius: 20,
+                border: `1.5px solid ${active ? r.stage.color : B.border}`,
+                background: active ? r.stage.color + "18" : "#fff",
+                color: active ? r.stage.color : B.muted,
+                fontSize: 10,
+                fontWeight: active ? 700 : 400,
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              {r.stage.label}
+            </button>
+          );
+        })}
+        {stageFilter && (
+          <button
+            onClick={() => setStageFilter(null)}
+            style={{
+              padding: "3px 10px",
+              borderRadius: 20,
+              border: `1px solid ${B.border}`,
+              background: "#fff",
+              color: B.muted,
+              fontSize: 10,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              marginLeft: 4,
+            }}
+          >
+            Reset
+          </button>
+        )}
+      </div>
+
       <div style={{ padding: "16px 20px 20px" }}>
         {!reverse && (
           <div
@@ -1938,7 +2081,7 @@ function StageTimelineGantt({ project, stageConfig }) {
           </div>
         )}
 
-        {withFallback.map((r) => (
+        {visibleStages.map((r) => (
           <div key={r.stage.id}>
             <TimelineRow
               label={r.stage.label}
@@ -1947,6 +2090,8 @@ function StageTimelineGantt({ project, stageConfig }) {
               start={r.start}
               end={r.end}
               estimated={r.estimated}
+              pct={r.pct}
+              isDelayed={r.isDelayed}
               indent={0}
               sub={false}
             />
@@ -1962,6 +2107,8 @@ function StageTimelineGantt({ project, stageConfig }) {
                     start={g.start}
                     end={g.end}
                     estimated={g.estimated}
+                    pct={g.pct}
+                    isDelayed={g.isDelayed}
                     indent={20}
                     sub={true}
                   />
