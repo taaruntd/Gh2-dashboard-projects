@@ -906,6 +906,18 @@ function StageBreakdown({ project, stageConfig }) {
   const [selectedStage, setSelectedStage] = useState(null);
   const [openGroups, setOpenGroups] = useState({});
   const td = project.tasks || {};
+  const today = new Date();
+
+  // Due date for a task = its End date (standard tasks) or Material
+  // Delivery date (procurement tasks). Delayed = that date has passed and
+  // the task still isn't 100% done.
+  const taskDelay = (t) => {
+    if (!t || (t.pct || 0) >= 100) return null;
+    const dueRaw = t.type === "proc" ? t.mat : t.end;
+    const due = parseDateStr(dueRaw);
+    if (!due || due >= today) return null;
+    return { days: Math.round((today.getTime() - due.getTime()) / 86400000), due };
+  };
 
   const groupPct = (tasks) => {
     const valid = tasks.filter((t) => td[t] !== undefined);
@@ -1126,6 +1138,20 @@ function StageBreakdown({ project, stageConfig }) {
                                 >
                                   %
                                 </th>
+                                <th
+                                  style={{
+                                    padding: "5px 9px",
+                                    textAlign: "right",
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    color: B.muted,
+                                    borderBottom: `2px solid ${B.border}`,
+                                    textTransform: "uppercase",
+                                    background: B.bg,
+                                  }}
+                                >
+                                  Delay
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1134,6 +1160,7 @@ function StageBreakdown({ project, stageConfig }) {
                                 const pct = t.pct || 0;
                                 const isProc = t.type === "proc";
                                 const done = pct >= 100;
+                                const delay = taskDelay(t);
                                 return (
                                   <tr key={taskName} style={{ background: i % 2 === 0 ? B.bg : "#fff" }}>
                                     <td
@@ -1183,6 +1210,28 @@ function StageBreakdown({ project, stageConfig }) {
                                         border={done ? "#86d9a0" : pct > 0 ? "#f5e84a" : "#d0d0d0"}
                                         color={done ? "#0d7a32" : pct > 0 ? "#8a7000" : "#666"}
                                       />
+                                    </td>
+                                    <td
+                                      style={{
+                                        padding: "7px 9px",
+                                        borderBottom: `1px solid ${B.border}`,
+                                        textAlign: "right",
+                                      }}
+                                    >
+                                      {delay ? (
+                                        <span
+                                          title={`Due ${fmtShortDate(delay.due)} · Today ${fmtShortDate(today)}`}
+                                        >
+                                          <Badge
+                                            text={`${delay.days}d overdue`}
+                                            bg="#fef2f2"
+                                            border="#f5a5a5"
+                                            color="#c0392b"
+                                          />
+                                        </span>
+                                      ) : (
+                                        <span style={{ fontSize: 10, color: B.muted }}>—</span>
+                                      )}
                                     </td>
                                   </tr>
                                 );
@@ -1659,7 +1708,16 @@ function StageTimelineGantt({ project, stageConfig }) {
     // work behind it isn't actually finished — a real signal from the data,
     // not a guess against some target we don't have.
     const isDelayed = !estimated && end < today && pct < 100;
-    return { ...r, start, end, estimated, pct, isDelayed };
+    // At risk = currently inside its own window (hasn't missed the deadline
+    // yet) but % complete is lagging well behind % of the window already
+    // used up — an earlier warning than waiting for the deadline to pass.
+    let isAtRisk = false;
+    if (!estimated && !isDelayed && today >= start && today <= end) {
+      const totalSpan = end.getTime() - start.getTime();
+      const pctTimeUsed = totalSpan > 0 ? ((today.getTime() - start.getTime()) / totalSpan) * 100 : 0;
+      isAtRisk = pctTimeUsed - pct >= 20;
+    }
+    return { ...r, start, end, estimated, pct, isDelayed, isAtRisk };
   };
 
   const withFallback = ranges.map((r) =>
@@ -1717,7 +1775,7 @@ function StageTimelineGantt({ project, stageConfig }) {
   // never run off either edge of the track, regardless of how narrow or how
   // close to the edge the bar itself is — this is what actually fixes the
   // overlap, rather than the old left/right threshold guess.
-  const TimelineRow = ({ label, color, light, start, end, estimated, indent, sub, pct, isDelayed }) => {
+  const TimelineRow = ({ label, color, light, start, end, estimated, indent, sub, pct, isDelayed, isAtRisk }) => {
     const left = pctOf(start);
     const width = Math.max(2, pctOf(end) - pctOf(start));
     const mid = left + width / 2;
@@ -1729,8 +1787,9 @@ function StageTimelineGantt({ project, stageConfig }) {
     const delayLeft = pctOf(end);
     const delayWidth = isDelayed && !reverse ? Math.max(1, todayPct - delayLeft) : 0;
     const fullTitle = `${label}: ${labelText}${estimated ? " (estimated)" : ""}${
-      isDelayed ? ` — ${delayDays}d overdue, ${pct}% done` : ""
+      isDelayed ? ` — ${delayDays}d overdue, ${pct}% done` : isAtRisk ? ` — ${pct}% done, behind pace` : ""
     }`;
+    const rowColor = isDelayed ? "#c0392b" : isAtRisk ? "#c8850a" : color;
     return (
       <div
         style={{
@@ -1747,7 +1806,7 @@ function StageTimelineGantt({ project, stageConfig }) {
             flexShrink: 0,
             fontSize: sub ? 11 : 13,
             fontWeight: sub ? 600 : 700,
-            color: isDelayed ? "#c0392b" : color,
+            color: rowColor,
             paddingRight: 12,
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -1761,6 +1820,7 @@ function StageTimelineGantt({ project, stageConfig }) {
           {sub && "↳ "}
           {label}
           {isDelayed && <span title={`${delayDays}d overdue`}>⚠</span>}
+          {isAtRisk && <span title="Behind pace">⏱</span>}
         </div>
         <div style={{ flex: 1, position: "relative", height: sub ? 26 : 36 }}>
           {!reverse && (
@@ -1786,7 +1846,9 @@ function StageTimelineGantt({ project, stageConfig }) {
               height: sub ? 16 : 24,
               borderRadius: isDelayed ? "6px 0 0 6px" : 6,
               background: light,
-              border: `${sub ? 1.5 : 2}px ${estimated ? "dashed" : "solid"} ${color}`,
+              border: `${sub ? 1.5 : 2}px ${estimated || isAtRisk ? "dashed" : "solid"} ${
+                isAtRisk ? "#e0a020" : color
+              }`,
               borderRight: isDelayed ? "none" : undefined,
             }}
           />
@@ -1830,7 +1892,7 @@ function StageTimelineGantt({ project, stageConfig }) {
                 alignItems: "center",
                 fontSize: sub ? 10 : 13,
                 fontWeight: sub ? 600 : 700,
-                color: isDelayed ? "#c0392b" : color,
+                color: rowColor,
                 whiteSpace: "nowrap",
                 pointerEvents: "none",
               }}
@@ -1859,6 +1921,18 @@ function StageTimelineGantt({ project, stageConfig }) {
                   }}
                 >
                   · {delayDays}d overdue
+                </span>
+              )}
+              {isAtRisk && (
+                <span
+                  style={{
+                    marginLeft: 6,
+                    fontSize: sub ? 9 : 10,
+                    fontWeight: 700,
+                    color: "#c8850a",
+                  }}
+                >
+                  · {pct}% done, behind pace
                 </span>
               )}
             </div>
@@ -1892,8 +1966,9 @@ function StageTimelineGantt({ project, stageConfig }) {
         <div style={{ fontSize: 11, color: B.muted }}>
           <strong style={{ color: B.text }}>Stage Timeline</strong> — derived
           from task-level dates. Overlapping bars mean stages genuinely ran
-          concurrently. Red hatched extension = stage ran past its own end
-          date and still isn't finished.
+          concurrently. <strong style={{ color: "#c0392b" }}>Red hatched</strong> = past
+          its end date and still not finished. <strong style={{ color: "#c8850a" }}>Amber dashed</strong> = still
+          within its window but behind pace.
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <button
@@ -2092,6 +2167,7 @@ function StageTimelineGantt({ project, stageConfig }) {
               estimated={r.estimated}
               pct={r.pct}
               isDelayed={r.isDelayed}
+              isAtRisk={r.isAtRisk}
               indent={0}
               sub={false}
             />
@@ -2109,6 +2185,7 @@ function StageTimelineGantt({ project, stageConfig }) {
                     estimated={g.estimated}
                     pct={g.pct}
                     isDelayed={g.isDelayed}
+                    isAtRisk={g.isAtRisk}
                     indent={20}
                     sub={true}
                   />
