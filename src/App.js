@@ -573,7 +573,21 @@ const parseDateStr = (s) => {
   // Slash or dash separated, day-first, 1-2 digit day/month allowed
   // (e.g. "25/8/2026", "24/9/2026", "15-10-2025")
   const sep = clean.includes("/") ? "/" : clean.includes("-") ? "-" : null;
-  if (!sep) return null;
+  if (!sep) {
+    // Excel serial sent as a JSON *string* rather than a number — this
+    // happens whenever the source cell is General/Number-formatted rather
+    // than a true Date cell, which Power Automate then quotes as text.
+    // Serials in the ~40000–60000 range cover roughly 2009–2064, which is
+    // the only realistic window for project dates here.
+    if (/^\d{4,6}$/.test(clean)) {
+      const n = Number(clean);
+      if (n >= 40000 && n <= 60000) {
+        const d = new Date(Date.UTC(1899, 11, 30) + n * 86400000);
+        return isNaN(d.getTime()) ? null : d;
+      }
+    }
+    return null;
+  }
   const p = clean.split(sep).map((x) => x.trim());
   if (p.length !== 3) return null;
   const [dd, mm, yyyy] = p;
