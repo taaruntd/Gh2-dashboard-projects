@@ -1667,6 +1667,7 @@ function StageTimelineGantt({ project, stageConfig }) {
   const [showGroups, setShowGroups] = useState(false);
   const [showLabels, setShowLabels] = useState(true);
   const [stageFilter, setStageFilter] = useState(null); // null = all stages
+  const [style, setStyle] = useState("bars"); // bars | grid
   const ranges = computeStageRanges(project, stageConfig);
 
   if (!ranges.length) {
@@ -1971,6 +1972,30 @@ function StageTimelineGantt({ project, stageConfig }) {
           within its window but behind pace.
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 2, background: B.oliveL, borderRadius: 8, padding: 3 }}>
+            {[["bars", "Bars"], ["grid", "Grid"]].map(([v, l]) => (
+              <button
+                key={v}
+                onClick={() => {
+                  setStyle(v);
+                  if (v === "grid") setReverse(false);
+                }}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: style === v ? "#fff" : "transparent",
+                  color: style === v ? B.text : B.muted,
+                  fontSize: 10,
+                  fontWeight: style === v ? 700 : 400,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
           <button
             onClick={() => setShowGroups((v) => !v)}
             style={{
@@ -2004,7 +2029,7 @@ function StageTimelineGantt({ project, stageConfig }) {
           >
             {showLabels ? "Hide dates" : "Show dates"}
           </button>
-          {!reverse && (
+          {!reverse && style === "bars" && (
             <div style={{ display: "flex", gap: 2, background: B.oliveL, borderRadius: 8, padding: 3 }}>
               {[["month", "Month"], ["week", "Week"]].map(([v, l]) => (
                 <button
@@ -2027,31 +2052,33 @@ function StageTimelineGantt({ project, stageConfig }) {
               ))}
             </div>
           )}
-          <div style={{ display: "flex", gap: 2, background: B.oliveL, borderRadius: 8, padding: 3 }}>
-            {[
-              [false, "Calendar"],
-              [true, "T-minus (Handover)"],
-            ].map(([v, l]) => (
-              <button
-                key={l}
-                onClick={() => setReverse(v)}
-                disabled={v && !anchor}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 6,
-                  border: "none",
-                  background: reverse === v ? "#fff" : "transparent",
-                  color: v && !anchor ? "#ccc" : reverse === v ? B.text : B.muted,
-                  fontSize: 10,
-                  fontWeight: reverse === v ? 700 : 400,
-                  cursor: v && !anchor ? "not-allowed" : "pointer",
-                  fontFamily: "inherit",
-                }}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
+          {style === "bars" && (
+            <div style={{ display: "flex", gap: 2, background: B.oliveL, borderRadius: 8, padding: 3 }}>
+              {[
+                [false, "Calendar"],
+                [true, "T-minus (Handover)"],
+              ].map(([v, l]) => (
+                <button
+                  key={l}
+                  onClick={() => setReverse(v)}
+                  disabled={v && !anchor}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 6,
+                    border: "none",
+                    background: reverse === v ? "#fff" : "transparent",
+                    color: v && !anchor ? "#ccc" : reverse === v ? B.text : B.muted,
+                    fontSize: 10,
+                    fontWeight: reverse === v ? 700 : 400,
+                    cursor: v && !anchor ? "not-allowed" : "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -2122,76 +2149,240 @@ function StageTimelineGantt({ project, stageConfig }) {
         )}
       </div>
 
-      <div style={{ padding: "16px 20px 20px" }}>
-        {!reverse && (
-          <div
-            style={{
-              display: "flex",
-              position: "relative",
-              height: 24,
-              borderBottom: `1px solid ${B.border}`,
-              marginLeft: 210,
-              marginBottom: 8,
-            }}
-          >
-            {ticks.map((m, i) => (
+      <div style={{ padding: "16px 20px 20px", overflowX: "auto" }}>
+        {style === "bars" && (
+          <>
+            {!reverse && (
               <div
-                key={i}
                 style={{
-                  position: "absolute",
-                  left: `${pctOf(m)}%`,
-                  borderLeft: `1px solid ${B.border}`,
-                  paddingLeft: 6,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: B.muted,
-                  whiteSpace: "nowrap",
+                  display: "flex",
+                  position: "relative",
+                  height: 24,
+                  borderBottom: `1px solid ${B.border}`,
+                  marginLeft: 210,
+                  marginBottom: 8,
                 }}
               >
-                {granularity === "week"
-                  ? m.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })
-                  : m.toLocaleDateString("en-IN", { month: "short", year: "2-digit" })}
+                {ticks.map((m, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      position: "absolute",
+                      left: `${pctOf(m)}%`,
+                      borderLeft: `1px solid ${B.border}`,
+                      paddingLeft: 6,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: B.muted,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {granularity === "week"
+                      ? m.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })
+                      : m.toLocaleDateString("en-IN", { month: "short", year: "2-digit" })}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {visibleStages.map((r) => (
+              <div key={r.stage.id}>
+                <TimelineRow
+                  label={r.stage.label}
+                  color={r.stage.color}
+                  light={r.stage.light}
+                  start={r.start}
+                  end={r.end}
+                  estimated={r.estimated}
+                  pct={r.pct}
+                  isDelayed={r.isDelayed}
+                  isAtRisk={r.isAtRisk}
+                  indent={0}
+                  sub={false}
+                />
+                {showGroups &&
+                  groupsWithFallback
+                    .filter((g) => g.stage.id === r.stage.id)
+                    .map((g) => (
+                      <TimelineRow
+                        key={`${g.stage.id}-${g.group.label}`}
+                        label={g.group.label}
+                        color={g.stage.color}
+                        light={g.stage.light}
+                        start={g.start}
+                        end={g.end}
+                        estimated={g.estimated}
+                        pct={g.pct}
+                        isDelayed={g.isDelayed}
+                        isAtRisk={g.isAtRisk}
+                        indent={20}
+                        sub={true}
+                      />
+                    ))}
               </div>
             ))}
-          </div>
+          </>
         )}
 
-        {visibleStages.map((r) => (
-          <div key={r.stage.id}>
-            <TimelineRow
-              label={r.stage.label}
-              color={r.stage.color}
-              light={r.stage.light}
-              start={r.start}
-              end={r.end}
-              estimated={r.estimated}
-              pct={r.pct}
-              isDelayed={r.isDelayed}
-              isAtRisk={r.isAtRisk}
-              indent={0}
-              sub={false}
-            />
-            {showGroups &&
-              groupsWithFallback
-                .filter((g) => g.stage.id === r.stage.id)
-                .map((g) => (
-                  <TimelineRow
-                    key={`${g.stage.id}-${g.group.label}`}
-                    label={g.group.label}
-                    color={g.stage.color}
-                    light={g.stage.light}
-                    start={g.start}
-                    end={g.end}
-                    estimated={g.estimated}
-                    pct={g.pct}
-                    isDelayed={g.isDelayed}
-                    isAtRisk={g.isAtRisk}
-                    indent={20}
-                    sub={true}
-                  />
-                ))}
-          </div>
-        ))}
+        {style === "grid" &&
+          (() => {
+            const weekMs = 7 * 86400000;
+            const numWeeks = Math.max(
+              1,
+              Math.ceil((axisEnd.getTime() - axisStart.getTime()) / weekMs)
+            );
+            const weekIndexOf = (d) =>
+              Math.min(
+                numWeeks - 1,
+                Math.max(0, Math.floor((d.getTime() - axisStart.getTime()) / weekMs))
+              );
+            const todayWeek = weekIndexOf(today);
+            const CELL_W = 34;
+
+            const gridRows = [];
+            visibleStages.forEach((r) => {
+              gridRows.push({ ...r, label: r.stage.label, sub: false });
+              if (showGroups) {
+                groupsWithFallback
+                  .filter((g) => g.stage.id === r.stage.id)
+                  .forEach((g) => gridRows.push({ ...g, color: g.stage.color, light: g.stage.light, label: g.group.label, sub: true }));
+              }
+            });
+
+            return (
+              <table style={{ borderCollapse: "collapse", fontSize: 11 }}>
+                <thead>
+                  <tr>
+                    <th
+                      style={{
+                        position: "sticky",
+                        left: 0,
+                        background: "#fff",
+                        zIndex: 1,
+                        minWidth: 200,
+                        textAlign: "left",
+                        padding: "6px 10px",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: B.muted,
+                        borderBottom: `2px solid ${B.border}`,
+                      }}
+                    >
+                      Activity
+                    </th>
+                    <th
+                      style={{
+                        minWidth: 44,
+                        padding: "6px 6px",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: B.muted,
+                        borderBottom: `2px solid ${B.border}`,
+                        borderLeft: `1px solid ${B.border}`,
+                      }}
+                    >
+                      Days
+                    </th>
+                    {Array.from({ length: numWeeks }).map((_, j) => (
+                      <th
+                        key={j}
+                        style={{
+                          width: CELL_W,
+                          minWidth: CELL_W,
+                          padding: "6px 2px",
+                          fontSize: 9,
+                          fontWeight: j === todayWeek ? 800 : 600,
+                          color: j === todayWeek ? B.blue : B.muted,
+                          borderBottom: `2px solid ${j === todayWeek ? B.blue : B.border}`,
+                          borderLeft: `1px solid ${B.border}`,
+                        }}
+                      >
+                        Wk-{j + 1}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {gridRows.map((row, ri) => {
+                    const startWeek = weekIndexOf(row.start);
+                    const endWeek = weekIndexOf(row.end);
+                    const days = Math.max(
+                      1,
+                      Math.round((row.end.getTime() - row.start.getTime()) / 86400000)
+                    );
+                    return (
+                      <tr key={ri}>
+                        <td
+                          style={{
+                            position: "sticky",
+                            left: 0,
+                            background: ri % 2 === 0 ? "#fff" : B.bg,
+                            zIndex: 1,
+                            padding: "6px 10px",
+                            fontSize: row.sub ? 10 : 11,
+                            fontWeight: row.sub ? 600 : 700,
+                            color: row.isDelayed ? "#c0392b" : row.isAtRisk ? "#c8850a" : row.color,
+                            borderBottom: `1px solid ${B.border}`,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {row.sub && "↳ "}
+                          {row.label}
+                          {row.isDelayed && " ⚠"}
+                          {row.isAtRisk && " ⏱"}
+                        </td>
+                        <td
+                          style={{
+                            textAlign: "center",
+                            padding: "6px 6px",
+                            fontSize: 10,
+                            color: B.muted,
+                            borderBottom: `1px solid ${B.border}`,
+                            borderLeft: `1px solid ${B.border}`,
+                          }}
+                        >
+                          {days}
+                        </td>
+                        {Array.from({ length: numWeeks }).map((_, j) => {
+                          const inRange = j >= startWeek && j <= endWeek;
+                          const inOverdueRange =
+                            row.isDelayed && j > endWeek && j <= todayWeek;
+                          let bg = "transparent";
+                          let border = `1px solid ${B.border}`;
+                          if (inRange) {
+                            bg = row.isAtRisk ? "#fdf0d5" : row.light;
+                            border = `1px solid ${row.isAtRisk ? "#e0a020" : row.color}`;
+                          } else if (inOverdueRange) {
+                            bg =
+                              "repeating-linear-gradient(45deg, #fef2f2, #fef2f2 3px, #fecaca 3px, #fecaca 6px)";
+                            border = "1px solid #c0392b";
+                          }
+                          return (
+                            <td
+                              key={j}
+                              title={
+                                inRange || inOverdueRange
+                                  ? `${row.label} — Wk-${j + 1}`
+                                  : undefined
+                              }
+                              style={{
+                                width: CELL_W,
+                                minWidth: CELL_W,
+                                height: row.sub ? 24 : 28,
+                                background: bg,
+                                border,
+                                borderLeft: j === todayWeek ? `2px solid ${B.blue}` : border,
+                              }}
+                            />
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            );
+          })()}
       </div>
     </div>
   );
